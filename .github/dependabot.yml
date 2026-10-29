@@ -2,12 +2,16 @@ version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
     groups:
-      terraform-plugin:
-        patterns: ["github.com/hashicorp/terraform-plugin-*"]
-      grpc-protobuf:
-        patterns: ["google.golang.org/*"]
+      minor-and-patch:
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"

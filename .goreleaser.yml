@@ -39,11 +39,9 @@ signs:
       - "${signature}"
       - --detach-sign
       - "${artifact}"
+# Built and signed only: release.yml uploads the files to the draft release
+# release-please made, then publishes it.
 release:
-  extra_files:
-    - glob: terraform-registry-manifest.json
-      name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
-  # release-please writes the notes.
-  mode: keep-existing
+  disable: true
 changelog:
   disable: true

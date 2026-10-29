@@ -1,44 +1,118 @@
-# Builds, signs, and publishes a release in the layout the Terraform and
-# OpenTofu registries read: zips per platform, SHA256SUMS, its detached GPG
-# signature, and the registry manifest. The registries pick it up from the
-# GitHub release.
 name: release
 
-on:
-  # A tag pushed by a person. Tags release-please makes don't trigger
-  # workflows, so release-please calls this one directly.
-  push:
-    tags: ["v*"]
-  workflow_call:
-    inputs:
-      tag:
-        type: string
-        required: true
+# Merging the release-please pull request tags the commit and drafts a release.
+# The jobs below test that exact commit, then build, sign, and attach the
+# provider in the layout the Terraform and OpenTofu registries read
+# (RELEASING.md). Both registries pick it up once the release is published.
 
-permissions:
-  contents: write
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  goreleaser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  please:
+    name: release pull request
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      sha: ${{ steps.rp.outputs.sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # All checks must pass on the exact commit before anything is built.
+  verify-go:
+    name: verify (go)
+    needs: please
+    if: needs.please.outputs.release_created == 'true'
+    uses: ./.github/workflows/ci-go.yml
+    permissions:
+      contents: read
+
+  verify-workflows:
+    name: verify (workflows)
+    needs: please
+    if: needs.please.outputs.release_created == 'true'
+    uses: ./.github/workflows/ci-workflows.yml
+    permissions:
+      contents: read
+
+  provider:
+    name: build, sign, and attach the provider
+    needs: [please, verify-go, verify-workflows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The signing key lives in this environment's secrets.
+    environment: release
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.please.outputs.tag_name }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.please.outputs.sha }}
+          persist-credentials: false
+          # GoReleaser reads the tag and the commit time from history.
           fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+
+      - name: The tag points at this commit
+        run: |
+          set -euo pipefail
+          tagged="$(git rev-list -n 1 "$TAG")"
+          [ "$tagged" = "$(git rev-parse HEAD)" ] || { echo "$TAG is $tagged, not HEAD" >&2; exit 1; }
+
+      - name: Install Go and GoReleaser
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
-          go-version-file: go.mod
-      - id: gpg
+          install_args: go goreleaser
+
+      - name: Import the release signing key
+        id: gpg
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
-      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        with:
-          version: "~> v2"
-          args: release --clean
+
+      # Zips per platform, SHA256SUMS, and its detached signature.
+      - name: Build and sign (goreleaser)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.gpg.outputs.fingerprint }}
+        run: goreleaser release --clean --skip=publish
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # The registries read the protocol version from this file.
+          cp terraform-registry-manifest.json "dist/terraform-provider-limen_${version}_manifest.json"
+          files=(dist/*.zip dist/*_SHA256SUMS dist/*_SHA256SUMS.sig dist/*_manifest.json)
+          gh release upload "${TAG}" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Publish, when the pipeline is trusted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUTO_PUBLISH: ${{ vars.RELEASE_AUTO_PUBLISH }}
+        run: |
+          if [ "${AUTO_PUBLISH:-}" = "true" ]; then
+            gh release edit "${TAG}" --draft=false --repo "$GITHUB_REPOSITORY"
+          else
+            echo "The release stays a draft. Review it, then publish it from the Releases page" \
+                 "(or set the repository variable RELEASE_AUTO_PUBLISH to true)."
+          fi
