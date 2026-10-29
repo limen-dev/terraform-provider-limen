@@ -64,8 +64,11 @@ resource "limen_policy_test" "payments_prod_locked" {
 
 Import is supported using the following syntax:
 
-The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+In Terraform v1.5.0 and later, the [`import` block](https://developer.hashicorp.com/terraform/language/import) can be used with the `id` attribute, for example:
 
-```shell
-terraform import limen_policy_test.payments_prod_locked payments-prod-is-locked-down
+```terraform
+import {
+  to = limen_policy_test.payments_prod_locked
+  id = "payments-prod-is-locked-down"
+}
 ```
