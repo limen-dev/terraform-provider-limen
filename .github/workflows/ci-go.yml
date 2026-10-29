@@ -1,0 +1,175 @@
+name: ci-go
+
+# Lint, the API contract, generated files, unit tests, then the acceptance
+# tests with real Terraform and OpenTofu CLIs against the in-memory Limen.
+# Starts for any change except prose and other workflows.
+
+on:
+  push:
+    branches: [main]
+    # Everything runs the tests except what is listed here, so a new directory
+    # is tested by default. (docs/ stays in: it is generated, and checked.)
+    paths: &paths
+      - "**"
+      - "!*.md"
+      - "!LICENSE"
+      - "!.github/**"
+      - ".github/workflows/ci-go.yml"
+  # A draft pull request runs nothing; marking it ready for review starts the run.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths: *paths
+  # Called by release.yml, which tests the exact commit before building anything.
+  workflow_call:
+  # A manual run ignores the path filter.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # (github.workflow is release.yml's name when it calls this, hence the prefix.)
+  group: ci-go-${{ github.workflow }}-${{ github.ref }}
+  # A new push cancels the older pull request run; a push to main always runs to the end.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint (go mod tidy, golangci-lint)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Go and golangci-lint
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: go golangci-lint
+
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
+
+      - name: Lints (golangci-lint)
+        run: golangci-lint run ./...
+
+  # The provider compiles against the management API's generated names, so
+  # its copy of the contract is linted like Limen's. The contract itself is
+  # Limen's: scripts/sync-proto.sh copies it, and Limen's CI refuses breaks.
+  api-contract:
+    name: Management API contract (buf)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install buf
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: buf
+
+      - name: Lint and formatting
+        working-directory: proto
+        run: |
+          buf lint
+          buf format --diff --exit-code
+
+  generated:
+    name: Generated code and docs are current
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # tfplugindocs runs terraform to read the provider's schema.
+      - name: Install Go, buf, and Terraform
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: go buf terraform
+
+      - name: Regenerate the Go code from proto/ (buf generate)
+        run: buf generate
+
+      - name: Regenerate docs/ from the schema, examples/, and templates/
+        run: go tool tfplugindocs generate --provider-name limen
+
+      - name: Examples are formatted (terraform fmt)
+        run: terraform fmt -recursive -check examples
+
+      - name: Nothing changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            git diff
+            echo "Generated files are stale: run 'make generate' and commit the result." >&2
+            exit 1
+          fi
+
+  test:
+    name: Unit tests (race detector)
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Go
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: go
+
+      - name: Run the unit tests
+        run: go test -race ./...
+
+  # The oldest supported and the newest version of each CLI. The tests need
+  # no control plane: they run against internal/fakelimen.
+  acceptance:
+    name: Acceptance tests (${{ matrix.name }})
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Terraform 1.5.7, tool: terraform@1.5.7, binary: terraform, host: registry.terraform.io }
+          - { name: Terraform 1.16.6, tool: terraform@1.16.6, binary: terraform, host: registry.terraform.io }
+          - { name: OpenTofu 1.6.3, tool: opentofu@1.6.3, binary: tofu, host: registry.opentofu.org }
+          - { name: OpenTofu 1.13.2, tool: opentofu@1.13.2, binary: tofu, host: registry.opentofu.org }
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Go and ${{ matrix.name }}
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          install_args: go ${{ matrix.tool }}
+
+      - name: Run the acceptance tests
+        env:
+          TF_ACC: "1"
+          TOOL: ${{ matrix.tool }}
+          BINARY: ${{ matrix.binary }}
+          # The registry host the CLI expects providers from.
+          TF_ACC_PROVIDER_HOST: ${{ matrix.host }}
+        run: |
+          TF_ACC_TERRAFORM_PATH="$(mise where "$TOOL")/$BINARY"
+          export TF_ACC_TERRAFORM_PATH
+          "$TF_ACC_TERRAFORM_PATH" version
+          go test ./internal/provider/ -count=1 -v -timeout 15m

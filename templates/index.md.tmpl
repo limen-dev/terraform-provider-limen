@@ -1,0 +1,52 @@
+---
+page_title: "Limen Provider"
+description: |-
+  Manage Limen policy documents (resources, roles, role mappings, policy tests) through Limen's management API.
+---
+
+# Limen Provider
+
+The Limen provider manages [Limen](https://github.com/limen-dev/limen) policy documents through its management API, `limen.manage.v1` ([ADR-0042](https://github.com/limen-dev/limen/blob/main/docs/adr/0042-management-api.md)). It works with Terraform and OpenTofu.
+
+The case it is built for: a team's module creates a database and registers it in Limen **in the same plan, in its own state**, while the security or platform team manages roles, mappings, and bots from theirs.
+
+{{ tffile "examples/provider/provider.tf" }}
+
+## How it fits Limen's model
+
+- **One owner per document.** Every document has an owner, `{channel, source, namespace}`. Documents this provider creates are owned by channel `api`, the provider's `default_source`, and its namespace. Another owner's document (from `limen admin apply`, the console, or another state's source) is never written: the plan fails and names the owner.
+- **No lost updates.** Every write sends the document's etag. A change made in Limen between plan and apply is refused, never merged or overwritten. Changes made outside Terraform show as drift and are put back by the next apply.
+- **Bots get the narrowest right, never `limen:admin`.** A bot writes through a `policy_writer` grant: one namespace, name patterns, kinds, and the resource profiles it may complete. `bot`, `discovery`, `resource_profile`, and `policy_writer` documents are written only by people, so they are data sources here, not resources.
+- **Plans are real dry runs.** During plan the provider sends each change with `validate_only` (`plan_checks`): authorization, validation, profiles, and tests all run, and who gains or loses access is shown as a warning beside the diff.
+- **Widening needs a person.** A bot's change that widens standing access is held for approval. The plan says so; apply fails naming the change, or waits for it with `approval_timeout`. After approval, apply again: the provider finds the document in place.
+
+## Authentication
+
+The provider picks the first of these that is configured:
+
+1. **A bot** (`bot` block, or `LIMEN_BOT_METHOD`): logs in with the CI platform's workload identity token, so no secret is stored anywhere. Limen accepts each token once and issues a certificate of at most an hour.
+   - `github_actions`: asks GitHub for a token. The job needs `permissions: id-token: write`.
+   - `gitlab`: reads `$LIMEN_ID_TOKEN` (declare it under `id_tokens:` with `aud: limen`), or `token_env` / `token_file`.
+   - `oidc`: any other issuer the bot's policy names, such as Buildkite, CircleCI, or a Kubernetes projected service account token (`token_file`, which is read again when the provider has to log in again).
+2. **A client certificate** (`client_certificate`) you already have.
+3. **The Limen CLI's login** from `limen login`, for running Terraform from a laptop. The address and CA default to the CLI's too.
+
+The proxy's CA comes from `ca_certificate`, `ca_file`, `LIMEN_CA_CERTIFICATE`, `LIMEN_CA_FILE`, or the CA `limen login --ca-file` pinned.
+
+### Long applies
+
+Bot certificates last at most an hour and are never refreshed. When the token source can mint another token (GitHub Actions, or a `token_file`), the provider logs in again two minutes before expiry. With a single token (`token`, `token_env`, Terraform Cloud's per-run token), an apply that outlasts the certificate fails its later writes; split it.
+
+## Pull requests: plan offline
+
+Limen never lets a pull request run log in as a bot (ADR-0019), so set `offline = true` (or `LIMEN_OFFLINE=true`) for pull request plans. Offline, the provider doesn't contact Limen: state isn't refreshed, nothing is dry-run, data sources can't be read, and apply is refused. The run on the protected branch does the online plan and the apply. See the [GitHub Actions guide](guides/github-actions.md).
+
+## Compatibility
+
+| Provider | Limen control plane | Terraform | OpenTofu |
+|---|---|---|---|
+| 0.x | Serves `limen.manage.v1` (Phase 14, stage 1 for `limen_resource`; stage 2 for roles, mappings, and tests) | 1.5 and later | 1.6 and later |
+
+Against an older control plane, every call fails with "This Limen doesn't serve the management API".
+
+{{ .SchemaMarkdown | trimspace }}

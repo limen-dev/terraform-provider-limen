@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+// The part of Limen's internal `limen.v1.Auth` service the provider uses to
+// log in. Copied from `proto/limen/v1/control.proto` in limen-dev/limen, with
+// the same package, service, message, and field names and numbers, so the
+// wire format is identical. Only these methods are declared here; the rest of
+// the service is not used.
+//
+// Unlike `limen.manage.v1`, this package carries no compatibility promise, so
+// `scripts/check-proto.sh` compares these messages with Limen's copy.
+package limen.v1;
+
+// Unauthenticated login, plus identity introspection.
+service Auth {
+  // OIDC settings the CLI needs to start a login. Unauthenticated.
+  rpc GetAuthConfig(GetAuthConfigRequest) returns (GetAuthConfigResponse);
+  // Exchanges a CI platform's workload identity token and a CSR for the
+  // short-lived credentials of a bot (ADR-0019). Unauthenticated.
+  rpc BotLogin(BotLoginRequest) returns (LoginResponse);
+  // Identity and roles of the calling user certificate.
+  rpc WhoAmI(WhoAmIRequest) returns (WhoAmIResponse);
+}
+
+// Request for `GetAuthConfig`.
+message GetAuthConfigRequest {}
+
+// Response for `GetAuthConfig`.
+message GetAuthConfigResponse {
+  // The IdP people log in with.
+  string issuer_url = 1;
+  // The IdP client id of the CLI.
+  string client_id = 2;
+  // The scopes the CLI asks for.
+  repeated string scopes = 3;
+  // The control plane's version.
+  string server_version = 4;
+  // The `aud` a bot's workload identity token must carry.
+  string bot_audience = 5;
+}
+
+// Request for `BotLogin`.
+message BotLoginRequest {
+  // github_actions, gitlab, or oidc.
+  string method = 1;
+  // The workload identity token (a JWT) minted for this job.
+  string token = 2;
+  // DER PKCS#10 CSR for the bot's X.509 key.
+  bytes csr_der = 3;
+  // Optional: which bot the token is for, when more than one could match.
+  string bot = 4;
+}
+
+// Response for `BotLogin`.
+message LoginResponse {
+  // `bot:<name>` for a bot.
+  string username = 1;
+  // The roles in the certificate.
+  repeated string roles = 2;
+  // Identifies this login.
+  string login_id = 3;
+  // The client certificate, PEM.
+  string cert_pem = 4;
+  // The CA that signs user and bot certificates, PEM.
+  string user_ca_pem = 5;
+  // The internal CA, PEM.
+  string internal_ca_pem = 6;
+  // When the certificate expires.
+  int64 expires_at_unix = 7;
+  // OpenSSH public key of the SSH host CA, for the CLI's known_hosts.
+  string ssh_host_ca_public_key = 8;
+}
+
+// Request for `WhoAmI`.
+message WhoAmIRequest {}
+
+// Response for `WhoAmI`.
+message WhoAmIResponse {
+  // `alice` or `bot:<name>`.
+  string username = 1;
+  // The roles in the certificate.
+  repeated string roles = 2;
+  // Identifies the login.
+  string login_id = 3;
+  // When the certificate expires.
+  int64 expires_at_unix = 4;
+}
