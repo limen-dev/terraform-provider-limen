@@ -5,13 +5,10 @@
   "bump-minor-pre-major": true,
   "draft": true,
   "force-tag-creation": true,
-  "prerelease": true,
-  "versioning": "prerelease",
-  "prerelease-type": "rc",
   "packages": {
     ".": {
       "package-name": "terraform-provider-limen",
-      "initial-version": "0.1.0-rc.1",
+      "initial-version": "0.1.0",
       "changelog-path": "CHANGELOG.md",
       "changelog-sections": [
         {

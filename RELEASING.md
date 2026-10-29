@@ -2,14 +2,9 @@
 
 Conventional commits on `main` make release-please open a release pull request. Merging it tags `vX.Y.Z` and drafts a GitHub release; `release.yml` then runs `ci-go` and `ci-workflows` on that exact commit, builds and signs the provider, and uploads it to the draft. The draft is published by hand from the Releases page, or automatically when the repository variable `RELEASE_AUTO_PUBLISH` is `true`. Both registries read a release once it is published, so they never see one without its files.
 
-**Release candidates for now.** Until Limen serves `limen.manage.v1`, every release is a candidate: the first is `0.1.0-rc.1`, and each later one bumps the number (`rc.2`, `rc.3`, …), whatever the commits. They are GitHub pre-releases, and users pin them exactly, since registries never choose a pre-release automatically.
+**Not yet.** The first release is 0.1.0 (`initial-version`), and it waits until the provider is verified against a Limen control plane that serves `limen.manage.v1`. Until then, leave release-please's pull request open and unmerged: it only proposes a release, and it updates itself on every push to `main`.
 
-**Graduating to 0.1.0**, once the provider is verified against a real control plane:
-1. In `release-please-config.json`, remove `prerelease`, `versioning`, and `prerelease-type`.
-2. Merge a commit whose message ends with a `Release-As: 0.1.0` footer.
-3. Merge the release pull request.
-
-From then on, before 1.0, `feat` bumps the minor version and `fix` the patch.
+Before 1.0, `feat` bumps the minor version and `fix` the patch.
 
 ## One-time setup (owner)
 

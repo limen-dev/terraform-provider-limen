@@ -66,7 +66,7 @@ spec:
 ```hcl
 terraform {
   required_providers {
-    limen = { source = "limen-dev/limen", version = "0.1.0-rc.1" } # release candidates are pinned exactly
+    limen = { source = "limen-dev/limen", version = "~> 0.1" }
   }
 }
 
@@ -174,7 +174,7 @@ Pull requests start as drafts; CI runs once they are marked ready. Commits are c
 
 ## Releases
 
-Until Limen serves the management API, releases are **release candidates** (`0.1.0-rc.1`, `0.1.0-rc.2`, …), marked as pre-releases. Registries never choose a pre-release automatically, so a constraint like `~> 0.1` doesn't match one: pin the exact version.
+Nothing is released yet: the first release, 0.1.0, waits until the provider is verified against a control plane that serves the management API.
 
 Merging the release-please pull request tags the version and drafts a GitHub release. CI then re-runs on that commit, builds and GPG-signs the provider, and attaches it in the layout the [Terraform Registry](https://registry.terraform.io/providers/limen-dev/limen) and [OpenTofu Registry](https://search.opentofu.org/provider/limen-dev/limen) read. Publishing the draft releases it. [RELEASING.md](RELEASING.md) has the one-time registry setup.
 

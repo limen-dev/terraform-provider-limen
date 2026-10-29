@@ -2,7 +2,7 @@ terraform {
   required_providers {
     limen = {
       source  = "limen-dev/limen"
-      version = "0.1.0-rc.1" # release candidates are pinned exactly
+      version = "~> 0.1"
     }
   }
 }
