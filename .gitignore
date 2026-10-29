@@ -1,0 +1,20 @@
+.DS_Store
+**/.claude/settings.local.json
+# Build output
+/dist/
+/bin/
+terraform-provider-limen
+# Terraform and OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraformrc
+terraform.rc
+crash.log
+# Credentials never belong here
+*.pem
+*.key
+
+# Local state from `make fake` and `make install`
+/.fakelimen/

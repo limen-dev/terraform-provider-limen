@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "draft": true,
+  "force-tag-creation": true,
+  "packages": {
+    ".": {
+      "package-name": "terraform-provider-limen",
+      "changelog-path": "CHANGELOG.md",
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Features"
+        },
+        {
+          "type": "fix",
+          "section": "Bug fixes"
+        },
+        {
+          "type": "docs",
+          "section": "Documentation"
+        },
+        {
+          "type": "deps",
+          "section": "Dependencies"
+        }
+      ]
+    }
+  }
+}

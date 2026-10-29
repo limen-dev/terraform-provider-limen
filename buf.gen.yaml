@@ -1,0 +1,18 @@
+# `go generate ./...` (internal/limenpb/generate.go) runs this. The plugins
+# are Go tools pinned in go.mod, so nothing is fetched from a registry.
+version: v2
+inputs:
+  - directory: proto
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/limen-dev/terraform-provider-limen/internal/limenpb
+clean: true
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: internal/limenpb
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: internal/limenpb
+    opt: paths=source_relative
