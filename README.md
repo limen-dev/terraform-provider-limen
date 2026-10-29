@@ -1,8 +1,8 @@
 # terraform-provider-limen
 
-Terraform and OpenTofu provider for [Limen](https://github.com/jfcmartins/limen), the self-hosted, identity-aware access proxy.
+Terraform and OpenTofu provider for [Limen](https://github.com/limen-dev/limen), the self-hosted, identity-aware access proxy.
 
-> **Not started yet.** The provider is a thin client of Limen's management API (`limen.manage.v1`), which doesn't exist yet. Work starts when stage 1 of Limen's Phase 14 lands. Design: [ADR-0042](https://github.com/jfcmartins/limen/blob/main/docs/adr/0042-management-api.md). Tracking: [jfcmartins/limen#73](https://github.com/jfcmartins/limen/issues/73).
+> **Not started yet.** The provider is a thin client of Limen's management API (`limen.manage.v1`), which doesn't exist yet. Work starts when stage 1 of Limen's Phase 14 lands. Design: [ADR-0042](https://github.com/limen-dev/limen/blob/main/docs/adr/0042-management-api.md). Tracking: [limen-dev/limen#73](https://github.com/limen-dev/limen/issues/73).
 
 ## What it will do
 A team's Terraform module creates a database and registers it in Limen in the same plan, in its own state:
