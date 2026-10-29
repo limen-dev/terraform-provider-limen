@@ -486,10 +486,12 @@ func (s *Server) writeOnce(c caller, ops []operation, opts *managev1.WriteOption
 	}
 	held := false
 	for _, op := range ops {
+		before := len(st.changed)
 		if err := s.apply(c, st, op); err != nil {
 			return nil, err
 		}
-		if c.writer != nil && s.holdKinds[op.kind()] && op.del == nil && op.transfer == nil {
+		// Only a write that changes something can widen access.
+		if c.writer != nil && s.holdKinds[op.kind()] && op.del == nil && op.transfer == nil && len(st.changed) > before {
 			held = true
 		}
 	}

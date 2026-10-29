@@ -136,7 +136,7 @@ func Explain(err error) (summary, detail string) {
 	case ReasonOwnedElsewhere:
 		return "Document is managed somewhere else",
 			tail(fmt.Sprintf("It is owned by channel %q, source %q, namespace %q, and only its owner may change it. Change it there, or ask an admin to transfer it (limen policy transfer).",
-				strings.ToLower(md["channel"]), md["source"], md["namespace"]))
+				channelWord(md["channel"]), md["source"], md["namespace"]))
 	case ReasonOutsideGrant:
 		return "Outside this writer's grant",
 			tail(grantHint(md["rule"]))
@@ -182,10 +182,16 @@ func Explain(err error) (summary, detail string) {
 		}
 		return "Limen is unavailable", tail("The provider retried until its deadline.")
 	case codes.Unimplemented:
-		return "Limen doesn't support this call",
-			tail("The server is older than this provider needs. The provider's documentation states the supported server versions.")
+		return "This Limen doesn't serve the management API",
+			tail("The provider needs a control plane that serves limen.manage.v1 (ADR-0042, Phase 14), " +
+				"behind a proxy that relays /limen.manage.v1.ManagementService/. Upgrade Limen; the provider's README lists supported versions.")
 	}
 	return "Limen request failed", detail
+}
+
+// channelWord turns `CHANNEL_GIT` or `git` into `git`.
+func channelWord(c string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.ToUpper(c), "CHANNEL_"))
 }
 
 func grantHint(rule string) string {
