@@ -56,7 +56,7 @@ const (
 
 // DefaultTokenEnv is where gitlab and oidc jobs put their token unless told
 // otherwise, the same as `limen login --bot`.
-const DefaultTokenEnv = "LIMEN_ID_TOKEN"
+const DefaultTokenEnv = "LIMEN_ID_TOKEN" //nolint:gosec // the name of a variable, not a credential
 
 // BotAuth logs in as a bot with a CI platform's workload identity token.
 // No secret is configured: the token exists only for this job, and Limen
@@ -160,7 +160,7 @@ func (b *BotAuth) githubToken(ctx context.Context, audience string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("asking GitHub for an identity token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", fmt.Errorf("reading GitHub's answer: %w", err)
@@ -232,7 +232,7 @@ func credentialsFromLogin(resp *limenv1.LoginResponse, key *ecdsa.PrivateKey) (*
 	}
 	cert, err := tls.X509KeyPair([]byte(resp.GetCertPem()), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
 	if err != nil {
-		return nil, fmt.Errorf("Limen returned an unusable certificate: %w", err)
+		return nil, fmt.Errorf("the control plane returned an unusable certificate: %w", err)
 	}
 	return &Credentials{
 		Certificate: cert,

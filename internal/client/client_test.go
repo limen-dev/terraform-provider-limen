@@ -170,7 +170,7 @@ func TestRenewsShortLivedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	first := c.ExpiresAt()
 	write(tokens[1])
 	time.Sleep(1100 * time.Millisecond)
@@ -203,7 +203,7 @@ func TestGitHubActionsToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if gotAuth != "Bearer runner-secret" || gotAudience != "limen" {
 		t.Fatalf("asked GitHub with %q for audience %q", gotAuth, gotAudience)
 	}
@@ -236,7 +236,7 @@ func TestCertificateAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	resp, err := c.Manage.DescribeCaller(context.Background(), &managev1.DescribeCallerRequest{})
 	if err != nil || !resp.GetAdmin() {
 		t.Fatalf("admin: %v %v", resp, err)

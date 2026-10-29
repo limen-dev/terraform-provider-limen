@@ -328,7 +328,7 @@ func setContent(ctx context.Context, m *documentModel, doc *managev1.Document, l
 	if !keep {
 		v, err := specjson.ToValue([]byte(doc.GetSpecJson()))
 		if err != nil {
-			return fmt.Errorf("Limen returned a spec that isn't JSON: %w", err)
+			return fmt.Errorf("the spec Limen returned isn't JSON: %w", err)
 		}
 		m.Spec = v
 	}
@@ -466,14 +466,14 @@ func (r *documentResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 	}
 	resp.Diagnostics.Append(r.set(ctx, resp.Plan.Set, plan, planProfile)...)
 	if state != nil && ownerChanged && state.Channel.ValueString() != "" && state.Channel.ValueString() != "api" {
-		resp.Diagnostics.AddWarning("Taking over a document: "+r.address(plan.Name.ValueString()),
+		resp.Diagnostics.AddWarning("Taking over a document: "+r.ref(plan.Name.ValueString()),
 			fmt.Sprintf("%s is owned by channel %q, source %q, namespace %q. Apply moves it to this configuration (source %q, namespace %q), "+
 				"and its current owner can no longer change it. Only a person with limen:admin may do this. "+
 				"To leave it where it is, set source and namespace on the resource to its current owner's and change it there instead.",
 				r.ref(plan.Name.ValueString()), state.Channel.ValueString(), state.Source.ValueString(), state.Namespace.ValueString(),
 				plan.Source.ValueString(), plan.Namespace.ValueString()))
 	}
-	if resp.Diagnostics.HasError() || !(contentChanged || ownerChanged) {
+	if resp.Diagnostics.HasError() || !contentChanged && !ownerChanged {
 		return
 	}
 	if r.data.client == nil || !r.data.planChecks {
@@ -506,7 +506,7 @@ func sameSpec(ctx context.Context, a, b types.Dynamic) bool {
 func (r *documentResource) dryRun(ctx context.Context, plan *documentModel, profile types.String, state *documentModel, contentChanged, ownerChanged bool, diags *diag.Diagnostics) {
 	c := r.data.client
 	name := plan.Name.ValueString()
-	addr := r.address(name)
+	addr := r.ref(name)
 	doc, err := r.toDocument(ctx, plan, profile)
 	if err != nil {
 		diags.AddAttributeError(path.Root("spec"), "Invalid spec", err.Error())
@@ -582,7 +582,7 @@ func (r *documentResource) planAdoption(ctx context.Context, plan *documentModel
 		return
 	}
 	if mine(cur, plan) {
-		diags.AddWarning("Document already exists: "+r.address(name),
+		diags.AddWarning("Document already exists: "+r.ref(name),
 			fmt.Sprintf("%s already exists in this source (for example, a held change was approved after an earlier apply). "+
 				"Apply takes it over if its content matches this configuration; otherwise import it.", r.ref(name)))
 		return
@@ -613,15 +613,15 @@ func (r *documentResource) planDestroy(ctx context.Context, req resource.ModifyP
 	})
 	if err != nil {
 		if client.Is(err, client.ReasonApprovalRequired) {
-			resp.Diagnostics.AddWarning("Delete will need approval: "+r.address(name), approvalHint(r.data.approvalTimeout))
+			resp.Diagnostics.AddWarning("Delete will need approval: "+r.ref(name), approvalHint(r.data.approvalTimeout))
 			return
 		}
 		addError(&resp.Diagnostics, "Checking the delete of "+r.ref(name)+" with Limen", err)
 		return
 	}
-	addImpact(&resp.Diagnostics, r.address(name), res.GetResult().GetImpact())
+	addImpact(&resp.Diagnostics, r.ref(name), res.GetResult().GetImpact())
 	if r.k.kind == managev1.DocumentKind_DOCUMENT_KIND_RESOURCE {
-		resp.Diagnostics.AddWarning("Deleting a resource ends its sessions: "+r.address(name),
+		resp.Diagnostics.AddWarning("Deleting a resource ends its sessions: "+r.ref(name),
 			"When "+name+" is deleted, Limen ends its open sessions and active access grants (ADR-0042 §7).")
 	}
 }
@@ -661,7 +661,7 @@ func (r *documentResource) Create(ctx context.Context, req resource.CreateReques
 		written, err = r.finish(ctx, res.GetResult(), name)
 	}
 	if err == nil && written == nil {
-		err = fmt.Errorf("Limen reported %s written but doesn't return it", r.ref(name))
+		err = fmt.Errorf("%s was reported written but can't be read back; run terraform plan to see it", r.ref(name))
 	}
 	if err != nil {
 		addError(&resp.Diagnostics, "Creating "+r.ref(name), err)

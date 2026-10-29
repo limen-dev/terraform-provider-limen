@@ -143,7 +143,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer anon.Close()
+	defer func() { _ = anon.Close() }()
 	anonAuth := limenv1.NewAuthClient(anon)
 	if c.authConfig, err = anonAuth.GetAuthConfig(ctx, &limenv1.GetAuthConfigRequest{}); err != nil {
 		return nil, fmt.Errorf("connecting to %s: %w", cfg.Address, FromStatus(err))
@@ -199,7 +199,7 @@ func (c *Client) current(ctx context.Context) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer anon.Close()
+	defer func() { _ = anon.Close() }()
 	creds, err := c.cfg.Auth.Login(ctx, limenv1.NewAuthClient(anon), c.authConfig)
 	if err != nil {
 		return nil, fmt.Errorf("renewing Limen credentials: %w", err)

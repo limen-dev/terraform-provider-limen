@@ -70,7 +70,7 @@ func TestReusesTheCLILogin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if c.Principal() != "alice" {
 		t.Fatal(c.Principal())
 	}

@@ -90,7 +90,7 @@ func (e *env) asGitHubBot() {
 		}
 		tok := fmt.Sprintf("gh-%d", e.minted.Add(1))
 		e.srv.AddBotToken(tok, client.MethodGitHubActions, botName)
-		fmt.Fprintf(w, `{"value":%q}`, tok)
+		_, _ = fmt.Fprintf(w, `{"value":%q}`, tok)
 	}))
 	e.t.Cleanup(gh.Close)
 	e.t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", gh.URL+"/token")

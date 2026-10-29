@@ -210,11 +210,10 @@ func (s *Server) Calls() []string {
 // IssueCertificate returns a client certificate and key for principal,
 // valid for ttl.
 func (s *Server) IssueCertificate(principal string, ttl time.Duration) (certPEM, keyPEM string, err error) {
-	key, csr, err := newKey()
+	key, err := newKey()
 	if err != nil {
 		return "", "", err
 	}
-	_ = csr
 	cert, _, err := s.pki.clientCert(&key.PublicKey, principal, ttl)
 	if err != nil {
 		return "", "", err

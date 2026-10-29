@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path"
 	"regexp"
 	"sort"
@@ -85,9 +86,8 @@ func cloneOwnership(o *managev1.Ownership) *managev1.Ownership {
 	return proto.Clone(o).(*managev1.Ownership)
 }
 
-func newKey() (*ecdsa.PrivateKey, []byte, error) {
-	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	return k, nil, err
+func newKey() (*ecdsa.PrivateKey, error) {
+	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 }
 
 func randomHex(n int) string {
@@ -560,11 +560,10 @@ func (st *staged) results() []*managev1.Document {
 	return out
 }
 
-func (st *staged) touch(d *managev1.Document) docKey {
+func (st *staged) touch(d *managev1.Document) {
 	k := docKey{d.Kind, d.Name}
 	st.docs[k] = d
 	st.changed[k] = true
-	return k
 }
 
 func ownedElsewhere(o *managev1.Ownership) error {
@@ -740,7 +739,7 @@ func (s *Server) applyDelete(c caller, st *staged, req *managev1.DeleteDocumentR
 	if cur.Ownership.GetChannel() != managev1.Channel_CHANNEL_API {
 		return ownedElsewhere(cur.Ownership)
 	}
-	if req.GetEtag() != cur.Etag && !(req.GetAllowMissing() && req.GetEtag() == "") {
+	if req.GetEtag() != cur.Etag && (!req.GetAllowMissing() || req.GetEtag() != "") {
 		return etagMismatch(cur.Etag)
 	}
 	key := docKey{req.GetKind(), req.GetName()}
@@ -808,8 +807,10 @@ func (s *Server) decide(id string, approve bool, by, note string) (*managev1.Pol
 	}
 	res, err := s.write(ch.Author, ops, &managev1.WriteOptions{SourceRef: ch.SourceRef}, nil, true)
 	if err != nil {
+		// Applying it again failed: something it touches changed since.
+		// That is the change's outcome, not an error of the call.
 		ch.State = managev1.PolicyChange_STATE_SUPERSEDED
-		return proto.Clone(ch).(*managev1.PolicyChange), nil
+		return proto.Clone(ch).(*managev1.PolicyChange), nil //nolint:nilerr // see above
 	}
 	ch.State = managev1.PolicyChange_STATE_APPLIED
 	ch.AppliedPolicyVersion = res.PolicyVersion
@@ -834,7 +835,7 @@ func (m *manageServer) DescribeCaller(ctx context.Context, _ *managev1.DescribeC
 			resp.Grant = &managev1.WriterGrant{
 				Name: w.Name, Namespace: w.Namespace, NamePatterns: w.NamePatterns, Kinds: w.Kinds,
 				Profiles: w.Profiles, MaxDocuments: w.MaxDocuments, ApproverGroups: w.ApproverGroups,
-				DocumentCount: uint32(s.countOwned(&staged{docs: s.docs}, w.Namespace)),
+				DocumentCount: uint32(min(s.countOwned(&staged{docs: s.docs}, w.Namespace), math.MaxUint32)), //nolint:gosec // clamped
 			}
 		}
 	}
