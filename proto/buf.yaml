@@ -1,0 +1,13 @@
+# The protobuf contracts the provider is a client of. Both are copies:
+# `limen/manage/v1` verbatim from limen-dev/limen (`scripts/sync-proto.sh`),
+# `limen/v1/auth.proto` a subset of Limen's internal Auth service.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+    - COMMENTS
+  ignore:
+    # Limen's internal package keeps Limen's own names.
+    - limen/v1

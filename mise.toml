@@ -1,0 +1,10 @@
+# Everything this repository needs. `mise install` fetches all of it.
+[tools]
+go = "1.27.3"
+golangci-lint = "2.15.0"
+goreleaser = "2.19.0"
+buf = "1.74.0"
+actionlint = "1.7.12"
+# The two CLIs the provider is tested with.
+terraform = "1.16.6"
+opentofu = "1.13.2"
