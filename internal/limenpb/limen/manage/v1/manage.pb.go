@@ -1060,7 +1060,8 @@ type ListDocumentsRequest struct {
 	// At most this many documents per page: 1 to 500, default 100.
 	PageSize int32 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// From the previous page's `next_page_token`. It pins the policy version
-	// and the filter; changing the filter with a token is refused. A token
+	// and the filter; changing the filter with a token is refused, and a token
+	// from a version that is no longer active is refused with ABORTED. A token
 	// grants nothing: every page is authorized again.
 	PageToken     string `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1497,7 +1498,10 @@ type UpdateDocumentRequest struct {
 	// Required: the etag from the last read.
 	Etag string `protobuf:"bytes,2,opt,name=etag,proto3" json:"etag,omitempty"`
 	// Options shared by every write.
-	Options       *WriteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	Options *WriteOptions `protobuf:"bytes,3,opt,name=options,proto3" json:"options,omitempty"`
+	// Who the caller writes as. Must be the document's owner (`channel` is
+	// ignored): a writer's namespace and the source that created it.
+	Ownership     *Ownership `protobuf:"bytes,4,opt,name=ownership,proto3" json:"ownership,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1549,6 +1553,13 @@ func (x *UpdateDocumentRequest) GetEtag() string {
 func (x *UpdateDocumentRequest) GetOptions() *WriteOptions {
 	if x != nil {
 		return x.Options
+	}
+	return nil
+}
+
+func (x *UpdateDocumentRequest) GetOwnership() *Ownership {
+	if x != nil {
+		return x.Ownership
 	}
 	return nil
 }
@@ -1612,7 +1623,10 @@ type DeleteDocumentRequest struct {
 	// retry a delete). Without it, a missing document is NOT_FOUND.
 	AllowMissing bool `protobuf:"varint,4,opt,name=allow_missing,json=allowMissing,proto3" json:"allow_missing,omitempty"`
 	// Options shared by every write.
-	Options       *WriteOptions `protobuf:"bytes,5,opt,name=options,proto3" json:"options,omitempty"`
+	Options *WriteOptions `protobuf:"bytes,5,opt,name=options,proto3" json:"options,omitempty"`
+	// Who the caller writes as. Must be the document's owner (`channel` is
+	// ignored).
+	Ownership     *Ownership `protobuf:"bytes,6,opt,name=ownership,proto3" json:"ownership,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1678,6 +1692,13 @@ func (x *DeleteDocumentRequest) GetAllowMissing() bool {
 func (x *DeleteDocumentRequest) GetOptions() *WriteOptions {
 	if x != nil {
 		return x.Options
+	}
+	return nil
+}
+
+func (x *DeleteDocumentRequest) GetOwnership() *Ownership {
+	if x != nil {
+		return x.Ownership
 	}
 	return nil
 }
@@ -3625,19 +3646,21 @@ const file_limen_manage_v1_manage_proto_rawDesc = "" +
 	"\townership\x18\x02 \x01(\v2\x1a.limen.manage.v1.OwnershipR\townership\x127\n" +
 	"\aoptions\x18\x03 \x01(\v2\x1d.limen.manage.v1.WriteOptionsR\aoptions\"N\n" +
 	"\x16CreateDocumentResponse\x124\n" +
-	"\x06result\x18\x01 \x01(\v2\x1c.limen.manage.v1.WriteResultR\x06result\"\x9b\x01\n" +
+	"\x06result\x18\x01 \x01(\v2\x1c.limen.manage.v1.WriteResultR\x06result\"\xd5\x01\n" +
 	"\x15UpdateDocumentRequest\x125\n" +
 	"\bdocument\x18\x01 \x01(\v2\x19.limen.manage.v1.DocumentR\bdocument\x12\x12\n" +
 	"\x04etag\x18\x02 \x01(\tR\x04etag\x127\n" +
-	"\aoptions\x18\x03 \x01(\v2\x1d.limen.manage.v1.WriteOptionsR\aoptions\"N\n" +
+	"\aoptions\x18\x03 \x01(\v2\x1d.limen.manage.v1.WriteOptionsR\aoptions\x128\n" +
+	"\townership\x18\x04 \x01(\v2\x1a.limen.manage.v1.OwnershipR\townership\"N\n" +
 	"\x16UpdateDocumentResponse\x124\n" +
-	"\x06result\x18\x01 \x01(\v2\x1c.limen.manage.v1.WriteResultR\x06result\"\xd0\x01\n" +
+	"\x06result\x18\x01 \x01(\v2\x1c.limen.manage.v1.WriteResultR\x06result\"\x8a\x02\n" +
 	"\x15DeleteDocumentRequest\x121\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1d.limen.manage.v1.DocumentKindR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04etag\x18\x03 \x01(\tR\x04etag\x12#\n" +
 	"\rallow_missing\x18\x04 \x01(\bR\fallowMissing\x127\n" +
-	"\aoptions\x18\x05 \x01(\v2\x1d.limen.manage.v1.WriteOptionsR\aoptions\"N\n" +
+	"\aoptions\x18\x05 \x01(\v2\x1d.limen.manage.v1.WriteOptionsR\aoptions\x128\n" +
+	"\townership\x18\x06 \x01(\v2\x1a.limen.manage.v1.OwnershipR\townership\"N\n" +
 	"\x16DeleteDocumentResponse\x124\n" +
 	"\x06result\x18\x01 \x01(\v2\x1c.limen.manage.v1.WriteResultR\x06result\"\xda\x01\n" +
 	"\x05Write\x12@\n" +
@@ -3929,77 +3952,79 @@ var file_limen_manage_v1_manage_proto_depIdxs = []int32{
 	16, // 19: limen.manage.v1.CreateDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
 	6,  // 20: limen.manage.v1.UpdateDocumentRequest.document:type_name -> limen.manage.v1.Document
 	15, // 21: limen.manage.v1.UpdateDocumentRequest.options:type_name -> limen.manage.v1.WriteOptions
-	16, // 22: limen.manage.v1.UpdateDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
-	0,  // 23: limen.manage.v1.DeleteDocumentRequest.kind:type_name -> limen.manage.v1.DocumentKind
-	15, // 24: limen.manage.v1.DeleteDocumentRequest.options:type_name -> limen.manage.v1.WriteOptions
-	16, // 25: limen.manage.v1.DeleteDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
-	17, // 26: limen.manage.v1.Write.create:type_name -> limen.manage.v1.CreateDocumentRequest
-	19, // 27: limen.manage.v1.Write.update:type_name -> limen.manage.v1.UpdateDocumentRequest
-	21, // 28: limen.manage.v1.Write.delete:type_name -> limen.manage.v1.DeleteDocumentRequest
-	23, // 29: limen.manage.v1.BatchWriteRequest.writes:type_name -> limen.manage.v1.Write
-	15, // 30: limen.manage.v1.BatchWriteRequest.options:type_name -> limen.manage.v1.WriteOptions
-	16, // 31: limen.manage.v1.BatchWriteResponse.result:type_name -> limen.manage.v1.WriteResult
-	7,  // 32: limen.manage.v1.ReplaceSourceRequest.ownership:type_name -> limen.manage.v1.Ownership
-	27, // 33: limen.manage.v1.ReplaceSourceRequest.files:type_name -> limen.manage.v1.SourceFile
-	15, // 34: limen.manage.v1.ReplaceSourceRequest.options:type_name -> limen.manage.v1.WriteOptions
-	16, // 35: limen.manage.v1.ReplaceSourceResponse.result:type_name -> limen.manage.v1.WriteResult
-	0,  // 36: limen.manage.v1.TransferDocumentRequest.kind:type_name -> limen.manage.v1.DocumentKind
-	7,  // 37: limen.manage.v1.TransferDocumentRequest.ownership:type_name -> limen.manage.v1.Ownership
-	15, // 38: limen.manage.v1.TransferDocumentRequest.options:type_name -> limen.manage.v1.WriteOptions
-	16, // 39: limen.manage.v1.TransferDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
-	32, // 40: limen.manage.v1.Impact.access_changes:type_name -> limen.manage.v1.AccessChange
-	33, // 41: limen.manage.v1.Impact.tests:type_name -> limen.manage.v1.TestResult
-	4,  // 42: limen.manage.v1.AccessChange.direction:type_name -> limen.manage.v1.AccessChange.Direction
-	5,  // 43: limen.manage.v1.PolicyChange.state:type_name -> limen.manage.v1.PolicyChange.State
-	53, // 44: limen.manage.v1.PolicyChange.author_ci:type_name -> limen.manage.v1.PolicyChange.AuthorCiEntry
-	23, // 45: limen.manage.v1.PolicyChange.writes:type_name -> limen.manage.v1.Write
-	31, // 46: limen.manage.v1.PolicyChange.impact:type_name -> limen.manage.v1.Impact
-	34, // 47: limen.manage.v1.GetChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
-	5,  // 48: limen.manage.v1.ListChangesRequest.state:type_name -> limen.manage.v1.PolicyChange.State
-	34, // 49: limen.manage.v1.ListChangesResponse.changes:type_name -> limen.manage.v1.PolicyChange
-	34, // 50: limen.manage.v1.ApproveChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
-	34, // 51: limen.manage.v1.RejectChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
-	34, // 52: limen.manage.v1.CancelChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
-	7,  // 53: limen.manage.v1.PolicyVersion.ownership:type_name -> limen.manage.v1.Ownership
-	46, // 54: limen.manage.v1.ListPolicyVersionsResponse.versions:type_name -> limen.manage.v1.PolicyVersion
-	0,  // 55: limen.manage.v1.GetSchemaRequest.kind:type_name -> limen.manage.v1.DocumentKind
-	8,  // 56: limen.manage.v1.ManagementService.DescribeCaller:input_type -> limen.manage.v1.DescribeCallerRequest
-	11, // 57: limen.manage.v1.ManagementService.GetDocument:input_type -> limen.manage.v1.GetDocumentRequest
-	13, // 58: limen.manage.v1.ManagementService.ListDocuments:input_type -> limen.manage.v1.ListDocumentsRequest
-	17, // 59: limen.manage.v1.ManagementService.CreateDocument:input_type -> limen.manage.v1.CreateDocumentRequest
-	19, // 60: limen.manage.v1.ManagementService.UpdateDocument:input_type -> limen.manage.v1.UpdateDocumentRequest
-	21, // 61: limen.manage.v1.ManagementService.DeleteDocument:input_type -> limen.manage.v1.DeleteDocumentRequest
-	24, // 62: limen.manage.v1.ManagementService.BatchWrite:input_type -> limen.manage.v1.BatchWriteRequest
-	26, // 63: limen.manage.v1.ManagementService.ReplaceSource:input_type -> limen.manage.v1.ReplaceSourceRequest
-	29, // 64: limen.manage.v1.ManagementService.TransferDocument:input_type -> limen.manage.v1.TransferDocumentRequest
-	35, // 65: limen.manage.v1.ManagementService.GetChange:input_type -> limen.manage.v1.GetChangeRequest
-	37, // 66: limen.manage.v1.ManagementService.ListChanges:input_type -> limen.manage.v1.ListChangesRequest
-	39, // 67: limen.manage.v1.ManagementService.ApproveChange:input_type -> limen.manage.v1.ApproveChangeRequest
-	41, // 68: limen.manage.v1.ManagementService.RejectChange:input_type -> limen.manage.v1.RejectChangeRequest
-	43, // 69: limen.manage.v1.ManagementService.CancelChange:input_type -> limen.manage.v1.CancelChangeRequest
-	45, // 70: limen.manage.v1.ManagementService.ListPolicyVersions:input_type -> limen.manage.v1.ListPolicyVersionsRequest
-	48, // 71: limen.manage.v1.ManagementService.GetSchema:input_type -> limen.manage.v1.GetSchemaRequest
-	9,  // 72: limen.manage.v1.ManagementService.DescribeCaller:output_type -> limen.manage.v1.DescribeCallerResponse
-	12, // 73: limen.manage.v1.ManagementService.GetDocument:output_type -> limen.manage.v1.GetDocumentResponse
-	14, // 74: limen.manage.v1.ManagementService.ListDocuments:output_type -> limen.manage.v1.ListDocumentsResponse
-	18, // 75: limen.manage.v1.ManagementService.CreateDocument:output_type -> limen.manage.v1.CreateDocumentResponse
-	20, // 76: limen.manage.v1.ManagementService.UpdateDocument:output_type -> limen.manage.v1.UpdateDocumentResponse
-	22, // 77: limen.manage.v1.ManagementService.DeleteDocument:output_type -> limen.manage.v1.DeleteDocumentResponse
-	25, // 78: limen.manage.v1.ManagementService.BatchWrite:output_type -> limen.manage.v1.BatchWriteResponse
-	28, // 79: limen.manage.v1.ManagementService.ReplaceSource:output_type -> limen.manage.v1.ReplaceSourceResponse
-	30, // 80: limen.manage.v1.ManagementService.TransferDocument:output_type -> limen.manage.v1.TransferDocumentResponse
-	36, // 81: limen.manage.v1.ManagementService.GetChange:output_type -> limen.manage.v1.GetChangeResponse
-	38, // 82: limen.manage.v1.ManagementService.ListChanges:output_type -> limen.manage.v1.ListChangesResponse
-	40, // 83: limen.manage.v1.ManagementService.ApproveChange:output_type -> limen.manage.v1.ApproveChangeResponse
-	42, // 84: limen.manage.v1.ManagementService.RejectChange:output_type -> limen.manage.v1.RejectChangeResponse
-	44, // 85: limen.manage.v1.ManagementService.CancelChange:output_type -> limen.manage.v1.CancelChangeResponse
-	47, // 86: limen.manage.v1.ManagementService.ListPolicyVersions:output_type -> limen.manage.v1.ListPolicyVersionsResponse
-	49, // 87: limen.manage.v1.ManagementService.GetSchema:output_type -> limen.manage.v1.GetSchemaResponse
-	72, // [72:88] is the sub-list for method output_type
-	56, // [56:72] is the sub-list for method input_type
-	56, // [56:56] is the sub-list for extension type_name
-	56, // [56:56] is the sub-list for extension extendee
-	0,  // [0:56] is the sub-list for field type_name
+	7,  // 22: limen.manage.v1.UpdateDocumentRequest.ownership:type_name -> limen.manage.v1.Ownership
+	16, // 23: limen.manage.v1.UpdateDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
+	0,  // 24: limen.manage.v1.DeleteDocumentRequest.kind:type_name -> limen.manage.v1.DocumentKind
+	15, // 25: limen.manage.v1.DeleteDocumentRequest.options:type_name -> limen.manage.v1.WriteOptions
+	7,  // 26: limen.manage.v1.DeleteDocumentRequest.ownership:type_name -> limen.manage.v1.Ownership
+	16, // 27: limen.manage.v1.DeleteDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
+	17, // 28: limen.manage.v1.Write.create:type_name -> limen.manage.v1.CreateDocumentRequest
+	19, // 29: limen.manage.v1.Write.update:type_name -> limen.manage.v1.UpdateDocumentRequest
+	21, // 30: limen.manage.v1.Write.delete:type_name -> limen.manage.v1.DeleteDocumentRequest
+	23, // 31: limen.manage.v1.BatchWriteRequest.writes:type_name -> limen.manage.v1.Write
+	15, // 32: limen.manage.v1.BatchWriteRequest.options:type_name -> limen.manage.v1.WriteOptions
+	16, // 33: limen.manage.v1.BatchWriteResponse.result:type_name -> limen.manage.v1.WriteResult
+	7,  // 34: limen.manage.v1.ReplaceSourceRequest.ownership:type_name -> limen.manage.v1.Ownership
+	27, // 35: limen.manage.v1.ReplaceSourceRequest.files:type_name -> limen.manage.v1.SourceFile
+	15, // 36: limen.manage.v1.ReplaceSourceRequest.options:type_name -> limen.manage.v1.WriteOptions
+	16, // 37: limen.manage.v1.ReplaceSourceResponse.result:type_name -> limen.manage.v1.WriteResult
+	0,  // 38: limen.manage.v1.TransferDocumentRequest.kind:type_name -> limen.manage.v1.DocumentKind
+	7,  // 39: limen.manage.v1.TransferDocumentRequest.ownership:type_name -> limen.manage.v1.Ownership
+	15, // 40: limen.manage.v1.TransferDocumentRequest.options:type_name -> limen.manage.v1.WriteOptions
+	16, // 41: limen.manage.v1.TransferDocumentResponse.result:type_name -> limen.manage.v1.WriteResult
+	32, // 42: limen.manage.v1.Impact.access_changes:type_name -> limen.manage.v1.AccessChange
+	33, // 43: limen.manage.v1.Impact.tests:type_name -> limen.manage.v1.TestResult
+	4,  // 44: limen.manage.v1.AccessChange.direction:type_name -> limen.manage.v1.AccessChange.Direction
+	5,  // 45: limen.manage.v1.PolicyChange.state:type_name -> limen.manage.v1.PolicyChange.State
+	53, // 46: limen.manage.v1.PolicyChange.author_ci:type_name -> limen.manage.v1.PolicyChange.AuthorCiEntry
+	23, // 47: limen.manage.v1.PolicyChange.writes:type_name -> limen.manage.v1.Write
+	31, // 48: limen.manage.v1.PolicyChange.impact:type_name -> limen.manage.v1.Impact
+	34, // 49: limen.manage.v1.GetChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
+	5,  // 50: limen.manage.v1.ListChangesRequest.state:type_name -> limen.manage.v1.PolicyChange.State
+	34, // 51: limen.manage.v1.ListChangesResponse.changes:type_name -> limen.manage.v1.PolicyChange
+	34, // 52: limen.manage.v1.ApproveChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
+	34, // 53: limen.manage.v1.RejectChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
+	34, // 54: limen.manage.v1.CancelChangeResponse.change:type_name -> limen.manage.v1.PolicyChange
+	7,  // 55: limen.manage.v1.PolicyVersion.ownership:type_name -> limen.manage.v1.Ownership
+	46, // 56: limen.manage.v1.ListPolicyVersionsResponse.versions:type_name -> limen.manage.v1.PolicyVersion
+	0,  // 57: limen.manage.v1.GetSchemaRequest.kind:type_name -> limen.manage.v1.DocumentKind
+	8,  // 58: limen.manage.v1.ManagementService.DescribeCaller:input_type -> limen.manage.v1.DescribeCallerRequest
+	11, // 59: limen.manage.v1.ManagementService.GetDocument:input_type -> limen.manage.v1.GetDocumentRequest
+	13, // 60: limen.manage.v1.ManagementService.ListDocuments:input_type -> limen.manage.v1.ListDocumentsRequest
+	17, // 61: limen.manage.v1.ManagementService.CreateDocument:input_type -> limen.manage.v1.CreateDocumentRequest
+	19, // 62: limen.manage.v1.ManagementService.UpdateDocument:input_type -> limen.manage.v1.UpdateDocumentRequest
+	21, // 63: limen.manage.v1.ManagementService.DeleteDocument:input_type -> limen.manage.v1.DeleteDocumentRequest
+	24, // 64: limen.manage.v1.ManagementService.BatchWrite:input_type -> limen.manage.v1.BatchWriteRequest
+	26, // 65: limen.manage.v1.ManagementService.ReplaceSource:input_type -> limen.manage.v1.ReplaceSourceRequest
+	29, // 66: limen.manage.v1.ManagementService.TransferDocument:input_type -> limen.manage.v1.TransferDocumentRequest
+	35, // 67: limen.manage.v1.ManagementService.GetChange:input_type -> limen.manage.v1.GetChangeRequest
+	37, // 68: limen.manage.v1.ManagementService.ListChanges:input_type -> limen.manage.v1.ListChangesRequest
+	39, // 69: limen.manage.v1.ManagementService.ApproveChange:input_type -> limen.manage.v1.ApproveChangeRequest
+	41, // 70: limen.manage.v1.ManagementService.RejectChange:input_type -> limen.manage.v1.RejectChangeRequest
+	43, // 71: limen.manage.v1.ManagementService.CancelChange:input_type -> limen.manage.v1.CancelChangeRequest
+	45, // 72: limen.manage.v1.ManagementService.ListPolicyVersions:input_type -> limen.manage.v1.ListPolicyVersionsRequest
+	48, // 73: limen.manage.v1.ManagementService.GetSchema:input_type -> limen.manage.v1.GetSchemaRequest
+	9,  // 74: limen.manage.v1.ManagementService.DescribeCaller:output_type -> limen.manage.v1.DescribeCallerResponse
+	12, // 75: limen.manage.v1.ManagementService.GetDocument:output_type -> limen.manage.v1.GetDocumentResponse
+	14, // 76: limen.manage.v1.ManagementService.ListDocuments:output_type -> limen.manage.v1.ListDocumentsResponse
+	18, // 77: limen.manage.v1.ManagementService.CreateDocument:output_type -> limen.manage.v1.CreateDocumentResponse
+	20, // 78: limen.manage.v1.ManagementService.UpdateDocument:output_type -> limen.manage.v1.UpdateDocumentResponse
+	22, // 79: limen.manage.v1.ManagementService.DeleteDocument:output_type -> limen.manage.v1.DeleteDocumentResponse
+	25, // 80: limen.manage.v1.ManagementService.BatchWrite:output_type -> limen.manage.v1.BatchWriteResponse
+	28, // 81: limen.manage.v1.ManagementService.ReplaceSource:output_type -> limen.manage.v1.ReplaceSourceResponse
+	30, // 82: limen.manage.v1.ManagementService.TransferDocument:output_type -> limen.manage.v1.TransferDocumentResponse
+	36, // 83: limen.manage.v1.ManagementService.GetChange:output_type -> limen.manage.v1.GetChangeResponse
+	38, // 84: limen.manage.v1.ManagementService.ListChanges:output_type -> limen.manage.v1.ListChangesResponse
+	40, // 85: limen.manage.v1.ManagementService.ApproveChange:output_type -> limen.manage.v1.ApproveChangeResponse
+	42, // 86: limen.manage.v1.ManagementService.RejectChange:output_type -> limen.manage.v1.RejectChangeResponse
+	44, // 87: limen.manage.v1.ManagementService.CancelChange:output_type -> limen.manage.v1.CancelChangeResponse
+	47, // 88: limen.manage.v1.ManagementService.ListPolicyVersions:output_type -> limen.manage.v1.ListPolicyVersionsResponse
+	49, // 89: limen.manage.v1.ManagementService.GetSchema:output_type -> limen.manage.v1.GetSchemaResponse
+	74, // [74:90] is the sub-list for method output_type
+	58, // [58:74] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_limen_manage_v1_manage_proto_init() }
