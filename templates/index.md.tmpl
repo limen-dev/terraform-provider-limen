@@ -49,4 +49,6 @@ Limen never lets a pull request run log in as a bot (ADR-0019), so set `offline 
 
 Against an older control plane, every call fails with "This Limen doesn't serve the management API".
 
+Until Limen serves the management API, releases are release candidates (`0.1.0-rc.1`, `0.1.0-rc.2`, …). Terraform and OpenTofu never choose a pre-release automatically, so pin one exactly: `version = "0.1.0-rc.1"`.
+
 {{ .SchemaMarkdown | trimspace }}
