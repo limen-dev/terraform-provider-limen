@@ -74,8 +74,9 @@ type ManagementServiceClient interface {
 	// One document. A writer may read only documents in its namespace and the
 	// profiles its grant names.
 	GetDocument(ctx context.Context, in *GetDocumentRequest, opts ...grpc.CallOption) (*GetDocumentResponse, error)
-	// Documents of one kind, in name order, from one immutable policy version,
-	// so paging is consistent even while others write.
+	// Documents of one kind, in name order. Every page comes from the same
+	// policy version: if the policy changes during a listing, the next page is
+	// refused with ABORTED and the client starts again.
 	ListDocuments(ctx context.Context, in *ListDocumentsRequest, opts ...grpc.CallOption) (*ListDocumentsResponse, error)
 	// Creates one document. The grant is checked before the name, so a writer
 	// learns nothing about names outside its patterns; then ALREADY_EXISTS if
@@ -308,8 +309,9 @@ type ManagementServiceServer interface {
 	// One document. A writer may read only documents in its namespace and the
 	// profiles its grant names.
 	GetDocument(context.Context, *GetDocumentRequest) (*GetDocumentResponse, error)
-	// Documents of one kind, in name order, from one immutable policy version,
-	// so paging is consistent even while others write.
+	// Documents of one kind, in name order. Every page comes from the same
+	// policy version: if the policy changes during a listing, the next page is
+	// refused with ABORTED and the client starts again.
 	ListDocuments(context.Context, *ListDocumentsRequest) (*ListDocumentsResponse, error)
 	// Creates one document. The grant is checked before the name, so a writer
 	// learns nothing about names outside its patterns; then ALREADY_EXISTS if

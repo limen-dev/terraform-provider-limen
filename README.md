@@ -32,7 +32,9 @@ Warning: Access changes: resource/payments-orders-db
 ```
 
 > [!IMPORTANT]
-> **Status: built ahead of the server.** The provider implements Limen's management API contract, `limen.manage.v1` ([ADR-0042](https://github.com/limen-dev/limen/blob/main/docs/adr/0042-management-api.md), [`manage.proto`](proto/limen/manage/v1/manage.proto)), which the control plane doesn't serve yet ([limen-dev/limen#73](https://github.com/limen-dev/limen/issues/73)). Until it does, it is tested against [`internal/fakelimen`](internal/fakelimen), an in-memory stand-in that serves the same contract, and is **unverified against a real control plane**.
+> **Status: early.** The provider implements Limen's management API, `limen.manage.v1` ([ADR-0042](https://github.com/limen-dev/limen/blob/main/docs/adr/0042-management-api.md), [`manage.proto`](proto/limen/manage/v1/manage.proto)). Limen serves **stage 1** of it, which writes **resources only**; roles, role mappings, and policy tests come with stage 2 ([limen-dev/limen#73](https://github.com/limen-dev/limen/issues/73)), so `limen_role`, `limen_role_mapping`, `limen_policy_test`, and `limen_schema` fail with a clear message until then.
+>
+> Tests run against [`internal/fakelimen`](internal/fakelimen), an in-memory stand-in for the contract. Against a real stage 1 control plane, only the bot login, the plan-time dry run of a new resource, and reading profiles have been run so far; create, update, delete, and import on a real server are **not yet verified**.
 
 ## Contents
 
@@ -126,13 +128,15 @@ Not here, on purpose:
 | Client certificate | A certificate you already have | `client_certificate = { cert_pem, key_pem }` |
 | The Limen CLI's login | A laptop | nothing: run `limen login` first |
 
+A bot's workload token works once. The provider logs in once per run and reuses the certificate when Terraform configures it again (as `terraform apply` does), but a plan and an apply in separate runs each need their own token: GitHub Actions mints one per request, while a token in a variable or file works for one run only.
+
 Bot certificates last at most an hour. When the platform can mint another token (GitHub Actions, a token file), the provider logs in again before it expires. Every setting also has an environment variable (`LIMEN_ADDRESS`, `LIMEN_CA_FILE`, `LIMEN_SOURCE`, `LIMEN_BOT_METHOD`, `LIMEN_OFFLINE`, …); see [the provider documentation](docs/index.md).
 
 ## Compatibility
 
 | Provider | Limen | Terraform | OpenTofu |
 |---|---|---|---|
-| 0.x | a control plane that serves `limen.manage.v1` (Phase 14) | 1.5 and later | 1.6 and later |
+| 0.x | Phase 14 stage 1 (resources); stage 2 for roles, role mappings, policy tests, and `limen_schema` | 1.5 and later | 1.6 and later |
 
 CI runs the acceptance tests on the oldest and newest supported version of each CLI. The provider uses plugin protocol 6.
 

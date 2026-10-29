@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/limen-dev/terraform-provider-limen/internal/client"
+	"github.com/limen-dev/terraform-provider-limen/internal/fakelimen"
 	managev1 "github.com/limen-dev/terraform-provider-limen/internal/limenpb/limen/manage/v1"
 )
 
@@ -627,4 +628,81 @@ resource "limen_resource" "db" {
 			},
 		},
 	})
+}
+
+// Limen's Phase 14 stage 1 writes resources only. A resource's whole
+// lifecycle works against it; the other kinds say why they can't yet.
+func TestAccStage1(t *testing.T) {
+	e := newEnvWith(t, fakelimen.Options{Stage1: true})
+	e.asGitHubBot()
+	cfg := func(db, labels string) string {
+		return e.botProvider("") + fmt.Sprintf(`
+resource "limen_resource" "orders_db" {
+  name    = "payments-orders-db"
+  profile = %q
+  spec    = { postgres = { endpoint = %q } }
+  labels  = %s
+}`, profile, db, labels)
+	}
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{
+			{Config: cfg("orders.c9xk2p.eu-west-1.rds.amazonaws.com:5432", `{ env = "dev" }`)},
+			{
+				// An update and a delete both name the owner; Limen refuses them otherwise.
+				Config: cfg("orders2.c9xk2p.eu-west-1.rds.amazonaws.com:5432", `{ env = "staging" }`),
+				Check:  resource.TestCheckResourceAttr("limen_resource.orders_db", "labels.env", "staging"),
+			},
+			{
+				Config: e.botProvider("") + `
+resource "limen_role" "r" {
+  name = "payments-read"
+  spec = { allow = [] }
+}`,
+				ExpectError: regexp.MustCompile(`(?s)This Limen doesn't support that yet.*stage 1 writes\s+resources\s+only`),
+			},
+			{
+				Config: e.botProvider("") + `
+data "limen_schema" "role" {
+  kind = "role"
+}`,
+				ExpectError: regexp.MustCompile(`This Limen doesn't support that yet`),
+			},
+		},
+	})
+}
+
+// Terraform configures the provider more than once in a single apply, and a
+// workload token works only once: the provider must log in once and reuse the
+// certificate, or the second configuration is refused as a replay.
+func TestAccOneLoginPerToken(t *testing.T) {
+	e := newEnv(t)
+	e.srv.AddBotToken("one-use-token", client.MethodOIDC, botName)
+	t.Setenv("LIMEN_TEST_TOKEN", "one-use-token")
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{{
+			Config: fmt.Sprintf(`
+provider "limen" {
+  address            = %q
+  ca_certificate     = %s
+  default_source     = "terraform/payments-prod"
+  bot                = { method = "oidc", name = %q, token_env = "LIMEN_TEST_TOKEN" }
+}
+resource "limen_resource" "db" {
+  name    = "payments-db"
+  profile = %q
+  spec    = { postgres = { endpoint = "a.c9xk2p.eu-west-1.rds.amazonaws.com:5432" } }
+}`, e.srv.Address, heredoc(e.srv.CAPEM), botName, profile),
+		}},
+	})
+	logins := 0
+	for _, c := range e.srv.Calls() {
+		if c == "BotLogin" {
+			logins++
+		}
+	}
+	if logins != 1 {
+		t.Fatalf("BotLogin was called %d times; a one-use token allows exactly one", logins)
+	}
 }

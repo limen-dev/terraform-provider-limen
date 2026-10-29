@@ -182,9 +182,14 @@ func Explain(err error) (summary, detail string) {
 		}
 		return "Limen is unavailable", tail("The provider retried until its deadline.")
 	case codes.Unimplemented:
-		return "This Limen doesn't serve the management API",
-			tail("The provider needs a control plane that serves limen.manage.v1 (ADR-0042, Phase 14), " +
-				"behind a proxy that relays /limen.manage.v1.ManagementService/. Upgrade Limen; the provider's README lists supported versions.")
+		if strings.Contains(apiErr.Message, "unknown service") || strings.Contains(apiErr.Message, "unknown method") {
+			return "This Limen doesn't serve the management API",
+				tail("The provider needs a control plane that serves limen.manage.v1 (ADR-0042, Phase 14), " +
+					"behind a proxy that relays /limen.manage.v1.ManagementService/. Upgrade Limen and its proxies; the provider's README lists supported versions.")
+		}
+		return "This Limen doesn't support that yet",
+			tail("The management API grows in stages (ADR-0042): stage 1 writes resources only, and roles, role mappings, bots, and policy tests come with stage 2. " +
+				"Until then, apply those documents from files with `limen admin apply`, and use this provider for resources.")
 	}
 	return "Limen request failed", detail
 }

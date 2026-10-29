@@ -33,6 +33,10 @@ The provider picks the first of these that is configured:
 
 The proxy's CA comes from `ca_certificate`, `ca_file`, `LIMEN_CA_CERTIFICATE`, `LIMEN_CA_FILE`, or the CA `limen login --ca-file` pinned.
 
+### One token, one login
+
+A bot's workload token works once. The provider logs in once per run and reuses the certificate when Terraform configures it again, as `terraform apply` does. A plan and an apply in separate runs each need their own token: GitHub Actions mints one per request, but a token in a variable or file works for one run only.
+
 ### Long applies
 
 Bot certificates last at most an hour and are never refreshed. When the token source can mint another token (GitHub Actions, or a `token_file`), the provider logs in again two minutes before expiry. With a single token (`token`, `token_env`, Terraform Cloud's per-run token), an apply that outlasts the certificate fails its later writes; split it.
@@ -45,8 +49,10 @@ Limen never lets a pull request run log in as a bot (ADR-0019), so set `offline 
 
 | Provider | Limen control plane | Terraform | OpenTofu |
 |---|---|---|---|
-| 0.x | Serves `limen.manage.v1` (Phase 14, stage 1 for `limen_resource`; stage 2 for roles, mappings, and tests) | 1.5 and later | 1.6 and later |
+| 0.x | Phase 14 stage 1 serves `limen.manage.v1` for resources; stage 2 adds roles, role mappings, policy tests, and `limen_schema` | 1.5 and later | 1.6 and later |
 
-Against an older control plane, every call fails with "This Limen doesn't serve the management API".
+Against a control plane without the API, every call fails with "This Limen doesn't serve the management API". Against stage 1, writing a role, role mapping, or policy test fails with "This Limen doesn't support that yet": apply those documents from files until stage 2.
+
+Reading a past `policy_version` in a data source is not served yet either.
 
 {{ .SchemaMarkdown | trimspace }}

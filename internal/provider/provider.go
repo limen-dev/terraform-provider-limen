@@ -337,14 +337,16 @@ func (p *limenProvider) Configure(ctx context.Context, req provider.ConfigureReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	c, err := client.New(ctx, client.Config{
-		Address:    address,
-		CACertPEM:  caPEM,
-		ServerName: cfg.TLSServerName.ValueString(),
-		Auth:       auth,
-		// The CLI's version too, for whoever reads the control plane's logs.
-		UserAgent: fmt.Sprintf("terraform-provider-limen/%s (terraform/%s)", p.version, req.TerraformVersion),
-		Logf:      func(f string, a ...any) { tflog.Debug(ctx, fmt.Sprintf(f, a...)) },
+	c, err := sharedClient(fmt.Sprintf("%s|%s|%s|%s", address, cfg.TLSServerName.ValueString(), auth.CacheKey(), caPEM), func() (*client.Client, error) {
+		return client.New(ctx, client.Config{
+			Address:    address,
+			CACertPEM:  caPEM,
+			ServerName: cfg.TLSServerName.ValueString(),
+			Auth:       auth,
+			// The CLI's version too, for whoever reads the control plane's logs.
+			UserAgent: fmt.Sprintf("terraform-provider-limen/%s (terraform/%s)", p.version, req.TerraformVersion),
+			Logf:      func(f string, a ...any) { tflog.Debug(ctx, fmt.Sprintf(f, a...)) },
+		})
 	})
 	if err != nil {
 		summary, detail := client.Explain(err)
@@ -356,6 +358,30 @@ func (p *limenProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		"address": address, "principal": c.Principal(), "server_version": c.ServerVersion(),
 		"expires_at": c.ExpiresAt().UTC().Format(time.RFC3339),
 	})
+}
+
+// logins holds the clients this process has logged in, by address and
+// credentials. Terraform configures the provider more than once in a single
+// run (the plan and apply walks of `terraform apply`), and a bot's workload
+// token works only once: a second login with the same token would be refused
+// as a replay. Reusing the certificate is also what saves a login.
+var logins = struct {
+	sync.Mutex
+	clients map[string]*client.Client
+}{clients: map[string]*client.Client{}}
+
+func sharedClient(key string, login func() (*client.Client, error)) (*client.Client, error) {
+	logins.Lock()
+	defer logins.Unlock()
+	if c := logins.clients[key]; c != nil && c.Reusable() {
+		return c, nil
+	}
+	c, err := login()
+	if err != nil {
+		return nil, err
+	}
+	logins.clients[key] = c
+	return c, nil
 }
 
 // authenticator picks the credentials: a bot (block or environment), then a
