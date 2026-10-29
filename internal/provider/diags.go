@@ -39,6 +39,9 @@ func pendingDetail(doing string, p *client.ErrPending) string {
 	if p.Waited > 0 {
 		fmt.Fprintf(&b, "  waited:   %s (approval_timeout)\n", p.Waited)
 	}
+	if len(p.Replaced) > 0 {
+		fmt.Fprintf(&b, "  replaces: %s (cancelled: this apply's change supersedes it)\n", strings.Join(p.Replaced, ", "))
+	}
 	if lines := accessLines(ch.GetImpact()); len(lines) > 0 {
 		b.WriteString("\nWhat it does:\n")
 		for _, l := range lines {

@@ -318,8 +318,16 @@ resource "limen_role_mapping" "payments" {
 				ExpectError: regexp.MustCompile(`(?s)Change is waiting for approval.*change:\s+chg-0001.*limen policy\s+changes approve chg-0001`),
 			},
 			{
+				// Applying again before anyone decides replaces the request.
+				Config:      cfg,
+				ExpectError: regexp.MustCompile(`(?s)change:\s+chg-0002.*replaces:\s+chg-0001`),
+			},
+			{
 				PreConfig: func() {
-					if err := e.srv.Decide("chg-0001", true, "carol", "ok"); err != nil {
+					if got := e.srv.PendingChanges(); len(got) != 1 || got[0] != "chg-0002" {
+						t.Fatalf("pending: %v", got)
+					}
+					if err := e.srv.Decide("chg-0002", true, "carol", "ok"); err != nil {
 						t.Fatal(err)
 					}
 				},
@@ -590,3 +598,33 @@ func (jsonObject) CheckValue(v any) error {
 }
 
 func (jsonObject) String() string { return "a JSON object" }
+
+// Renaming replaces the document: the plan dry-runs a create of the new name.
+func TestAccRename(t *testing.T) {
+	e := newEnv(t)
+	cfg := func(name, addr string) string {
+		return e.adminProvider("") + fmt.Sprintf(`
+resource "limen_resource" "db" {
+  name = %q
+  spec = { tcp = { address = %q } }
+}`, name, addr)
+	}
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{
+			{Config: cfg("orders-db", "10.0.0.1:5432")},
+			{
+				Config: cfg("orders-db-2", "10.0.0.2:5432"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("limen_resource.db", plancheck.ResourceActionReplace)},
+				},
+				Check: func(*terraform.State) error {
+					if e.srv.Document(kindResource, "orders-db") != nil || e.srv.Document(kindResource, "orders-db-2") == nil {
+						return fmt.Errorf("not replaced")
+					}
+					return nil
+				},
+			},
+		},
+	})
+}

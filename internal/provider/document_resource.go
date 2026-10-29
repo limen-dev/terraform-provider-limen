@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"github.com/limen-dev/terraform-provider-limen/internal/client"
 	managev1 "github.com/limen-dev/terraform-provider-limen/internal/limenpb/limen/manage/v1"
@@ -363,11 +364,7 @@ func (r *documentResource) online(diags *diag.Diagnostics, doing string) bool {
 func (r *documentResource) finish(ctx context.Context, res *managev1.WriteResult, name string) (*managev1.Document, error) {
 	c := r.data.client
 	if res.GetOutcome() == managev1.WriteOutcome_WRITE_OUTCOME_PENDING_APPROVAL {
-		ch := res.GetPendingChange()
-		if r.data.approvalTimeout <= 0 {
-			return nil, &client.ErrPending{Change: ch}
-		}
-		if _, err := c.WaitForChange(ctx, ch, r.data.approvalTimeout, pollInterval(r.data.approvalTimeout)); err != nil {
+		if err := r.awaitApproval(ctx, res.GetPendingChange(), name); err != nil {
 			return nil, err
 		}
 		return c.GetDocument(ctx, r.k.kind, name)
@@ -378,6 +375,26 @@ func (r *documentResource) finish(ctx context.Context, res *managev1.WriteResult
 		}
 	}
 	return c.GetDocument(ctx, r.k.kind, name)
+}
+
+// awaitApproval handles a held change: it replaces this configuration's
+// earlier pending changes to the document, then waits for a decision when
+// approval_timeout allows, or returns an *client.ErrPending.
+func (r *documentResource) awaitApproval(ctx context.Context, ch *managev1.PolicyChange, name string) error {
+	c := r.data.client
+	replaced, err := c.CancelSuperseded(ctx, ch, r.k.kind, name)
+	if err != nil {
+		// The new change stands; failing to tidy up older ones is not fatal.
+		tflog.Warn(ctx, "couldn't cancel earlier pending changes", map[string]any{"error": err.Error()})
+	}
+	if r.data.approvalTimeout <= 0 {
+		return &client.ErrPending{Change: ch, Replaced: replaced}
+	}
+	_, err = c.WaitForChange(ctx, ch, r.data.approvalTimeout, pollInterval(r.data.approvalTimeout))
+	if p, ok := client.AsPending(err); ok {
+		p.Replaced = replaced
+	}
+	return err
 }
 
 // ---- Plan ---------------------------------------------------------------------
@@ -473,7 +490,17 @@ func (r *documentResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 				r.ref(plan.Name.ValueString()), state.Channel.ValueString(), state.Source.ValueString(), state.Namespace.ValueString(),
 				plan.Source.ValueString(), plan.Namespace.ValueString()))
 	}
-	if resp.Diagnostics.HasError() || !contentChanged && !ownerChanged {
+	if resp.Diagnostics.HasError() || !contentChanged && !ownerChanged && (state == nil || plan.Name.Equal(state.Name)) {
+		return
+	}
+	if state != nil && !plan.Name.Equal(state.Name) {
+		// A new name replaces the document. Terraform plans the replacement
+		// again as a create, which is dry-run then; nothing to check here.
+		if r.k.kind == managev1.DocumentKind_DOCUMENT_KIND_RESOURCE {
+			resp.Diagnostics.AddWarning("Replacing a resource ends its sessions: "+r.ref(state.Name.ValueString()),
+				"Names never change in Limen, so renaming deletes "+state.Name.ValueString()+" and creates "+plan.Name.ValueString()+
+					". Deleting it ends its open sessions and active access grants (ADR-0042 §7).")
+		}
 		return
 	}
 	if r.data.client == nil || !r.data.planChecks {
@@ -826,12 +853,14 @@ func (r *documentResource) Delete(ctx context.Context, req resource.DeleteReques
 		Kind: r.k.kind, Name: name, Etag: state.Etag.ValueString(), AllowMissing: true, Options: r.data.writeOptions(false),
 	})
 	if err == nil && res.GetResult().GetOutcome() == managev1.WriteOutcome_WRITE_OUTCOME_PENDING_APPROVAL {
-		ch := res.GetResult().GetPendingChange()
-		if r.data.approvalTimeout <= 0 {
-			err = &client.ErrPending{Change: ch}
-		} else {
-			_, err = r.data.client.WaitForChange(ctx, ch, r.data.approvalTimeout, pollInterval(r.data.approvalTimeout))
-		}
+		err = r.awaitApproval(ctx, res.GetResult().GetPendingChange(), name)
+	}
+	if client.Is(err, client.ReasonOwnedElsewhere) {
+		resp.Diagnostics.AddError("Document is managed somewhere else",
+			fmt.Sprintf("Deleting %s: it was moved to another owner since Terraform created it, so this configuration may no longer delete it.\n\n%s\n\n"+
+				"To stop managing it here without deleting it, remove it from the state: terraform state rm (or a removed block).",
+				r.ref(name), err.Error()))
+		return
 	}
 	if err != nil {
 		addError(&resp.Diagnostics, "Deleting "+r.ref(name), err)

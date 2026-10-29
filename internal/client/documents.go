@@ -120,6 +120,9 @@ func (c *Client) ListAll(ctx context.Context, f ListFilter) ([]*managev1.Documen
 type ErrPending struct {
 	Change *managev1.PolicyChange
 	Waited time.Duration
+	// Replaced are the caller's earlier pending changes to the same
+	// document, cancelled because this one replaces them.
+	Replaced []string
 }
 
 func (e *ErrPending) Error() string {
@@ -170,6 +173,57 @@ func (c *Client) WaitForChange(ctx context.Context, change *managev1.PolicyChang
 		}
 		change = resp.GetChange()
 	}
+}
+
+// CancelSuperseded cancels the caller's own pending changes, other than
+// keep, that write the document kind/name: re-applying before an approval
+// replaces the earlier request instead of piling up requests for approvers.
+// It returns the ids it cancelled. Changes by anyone else are never touched.
+func (c *Client) CancelSuperseded(ctx context.Context, keep *managev1.PolicyChange, kind managev1.DocumentKind, name string) ([]string, error) {
+	me := c.Principal()
+	var cancelled []string
+	token := ""
+	for {
+		resp, err := c.Manage.ListChanges(ctx, &managev1.ListChangesRequest{State: managev1.PolicyChange_STATE_PENDING, PageSize: 200, PageToken: token})
+		if err != nil {
+			return cancelled, err
+		}
+		for _, ch := range resp.GetChanges() {
+			if ch.GetId() == keep.GetId() || ch.GetAuthor() != me || !touches(ch, kind, name) {
+				continue
+			}
+			if _, err := c.Manage.CancelChange(ctx, &managev1.CancelChangeRequest{Id: ch.GetId()}); err != nil {
+				// Decided meanwhile: nothing to replace.
+				if Is(err, ReasonChangeNotDecidable) {
+					continue
+				}
+				return cancelled, err
+			}
+			cancelled = append(cancelled, ch.GetId())
+		}
+		if token = resp.GetNextPageToken(); token == "" {
+			return cancelled, nil
+		}
+	}
+}
+
+func touches(ch *managev1.PolicyChange, kind managev1.DocumentKind, name string) bool {
+	for _, w := range ch.GetWrites() {
+		var k managev1.DocumentKind
+		var n string
+		switch {
+		case w.GetCreate() != nil:
+			k, n = w.GetCreate().GetDocument().GetKind(), w.GetCreate().GetDocument().GetName()
+		case w.GetUpdate() != nil:
+			k, n = w.GetUpdate().GetDocument().GetKind(), w.GetUpdate().GetDocument().GetName()
+		case w.GetDelete() != nil:
+			k, n = w.GetDelete().GetKind(), w.GetDelete().GetName()
+		}
+		if k == kind && n == name {
+			return true
+		}
+	}
+	return false
 }
 
 // IsNotFound reports a NOT_FOUND error.
