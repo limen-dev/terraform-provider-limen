@@ -2,6 +2,8 @@
 
 Conventional commits on `main` make release-please open a release pull request. Merging it tags `vX.Y.Z` and drafts a GitHub release; `release.yml` then runs `ci-go` and `ci-workflows` on that exact commit, builds and signs the provider, and uploads it to the draft. The draft is published by hand from the Releases page, or automatically when the repository variable `RELEASE_AUTO_PUBLISH` is `true`. Both registries read a release once it is published, so they never see one without its files.
 
+**Not yet.** The first release is 0.1.0 (`initial-version`), and it waits until the provider is verified against a Limen control plane that serves `limen.manage.v1`. Until then, leave release-please's pull request open and unmerged: it only proposes a release, and it updates itself on every push to `main`.
+
 Before 1.0, `feat` bumps the minor version and `fix` the patch.
 
 ## One-time setup (owner)

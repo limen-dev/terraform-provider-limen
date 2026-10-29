@@ -174,6 +174,8 @@ Pull requests start as drafts; CI runs once they are marked ready. Commits are c
 
 ## Releases
 
+Nothing is released yet: the first release, 0.1.0, waits until the provider is verified against a control plane that serves the management API.
+
 Merging the release-please pull request tags the version and drafts a GitHub release. CI then re-runs on that commit, builds and GPG-signs the provider, and attaches it in the layout the [Terraform Registry](https://registry.terraform.io/providers/limen-dev/limen) and [OpenTofu Registry](https://search.opentofu.org/provider/limen-dev/limen) read. Publishing the draft releases it. [RELEASING.md](RELEASING.md) has the one-time registry setup.
 
 ## Security
