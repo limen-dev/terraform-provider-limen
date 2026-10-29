@@ -15,3 +15,6 @@ crash.log
 # Credentials never belong here
 *.pem
 *.key
+
+# Local state from `make fake` and `make install`
+/.fakelimen/
