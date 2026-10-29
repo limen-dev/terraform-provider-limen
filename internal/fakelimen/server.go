@@ -53,6 +53,10 @@ type Options struct {
 	ServerVersion string
 	// CertTTL of issued bot certificates; default one hour.
 	CertTTL time.Duration
+	// Stage1 serves what Limen's Phase 14 stage 1 serves: writes of
+	// resources only (other kinds are UNIMPLEMENTED), no GetSchema, and no
+	// reading of past policy versions. Without it, every kind is writable.
+	Stage1 bool
 }
 
 // Server is a running fake.
@@ -80,7 +84,14 @@ type Server struct {
 	usedTokens map[string]bool
 	holdKinds  map[managev1.DocumentKind]bool
 	faults     []*fault
+	hooks      []*hook
 	calls      []string
+}
+
+// hook runs once, before the next call of method.
+type hook struct {
+	method string
+	run    func()
 }
 
 type docKey struct {
@@ -200,6 +211,15 @@ func (s *Server) FailNext(method string, n int, code codes.Code, reason string, 
 	s.faults = append(s.faults, &fault{method: method, code: code, reason: reason, retryAfter: retryAfter, remaining: n})
 }
 
+// Before runs f once, just before the next call of method is handled, with
+// the server unlocked, so f may use the setup methods. Tests use it to change
+// the policy in the middle of a client's multi-call operation.
+func (s *Server) Before(method string, f func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hooks = append(s.hooks, &hook{method: method, run: f})
+}
+
 // Calls lists the RPC names called so far, in order.
 func (s *Server) Calls() []string {
 	s.mu.Lock()
@@ -315,6 +335,21 @@ func (s *Server) intercept(ctx context.Context, req any, info *grpc.UnaryServerI
 	method := info.FullMethod[strings.LastIndex(info.FullMethod, "/")+1:]
 	s.mu.Lock()
 	s.calls = append(s.calls, method)
+	var run []func()
+	rest := s.hooks[:0]
+	for _, h := range s.hooks {
+		if h.method == method {
+			run = append(run, h.run)
+		} else {
+			rest = append(rest, h)
+		}
+	}
+	s.hooks = rest
+	s.mu.Unlock()
+	for _, f := range run {
+		f()
+	}
+	s.mu.Lock()
 	for _, f := range s.faults {
 		if f.remaining > 0 && f.method == method {
 			f.remaining--

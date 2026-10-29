@@ -37,9 +37,11 @@ const (
 	profile = "payments-postgres"
 )
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvWith(t, fakelimen.Options{}) }
+
+func newEnvWith(t *testing.T, opts fakelimen.Options) *env {
 	t.Helper()
-	srv, err := fakelimen.Start(fakelimen.Options{})
+	srv, err := fakelimen.Start(opts)
 	if err != nil {
 		t.Fatal(err)
 	}

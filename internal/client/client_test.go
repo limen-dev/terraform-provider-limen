@@ -267,3 +267,61 @@ func TestServerName(t *testing.T) {
 		}
 	}
 }
+
+func TestListingRestartsWhenThePolicyChanges(t *testing.T) {
+	srv := start(t, fakelimen.Options{})
+	owner := &managev1.Ownership{Channel: managev1.Channel_CHANNEL_API, Source: "terraform/a", Namespace: "payments"}
+	seed := func(name string) {
+		doc := &managev1.Document{Kind: managev1.DocumentKind_DOCUMENT_KIND_RESOURCE, Name: name, SpecJson: `{"tcp":{"address":"10.0.0.1:1"}}`}
+		if err := srv.Seed(doc, owner); err != nil {
+			t.Error(err)
+		}
+	}
+	for _, name := range []string{"payments-a", "payments-b", "payments-c"} {
+		seed(name)
+	}
+	c := connectBot(t, srv, "tok-list")
+	// The policy changes after the first page was served: the second page's
+	// token is then stale, and the listing has to start again.
+	changed := 0
+	srv.Before("ListDocuments", func() {
+		srv.Before("ListDocuments", func() { changed++; seed("payments-d") })
+	})
+	docs, version, err := c.ListAll(context.Background(), client.ListFilter{Kind: managev1.DocumentKind_DOCUMENT_KIND_RESOURCE, PageSize: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 1 || version != 4 || len(docs) != 4 {
+		t.Fatalf("changed=%d version=%d documents=%d", changed, version, len(docs))
+	}
+	// page 1, page 2 (refused), then four pages of the restarted listing.
+	if n := strings.Count(strings.Join(srv.Calls(), ","), "ListDocuments"); n != 6 {
+		t.Fatalf("ListDocuments called %d times: %v", n, srv.Calls())
+	}
+}
+
+func TestUpdateAndDeleteNeedTheOwner(t *testing.T) {
+	srv := start(t, fakelimen.Options{})
+	c := connectBot(t, srv, "tok-owner")
+	srv.Seed(&managev1.Document{Kind: managev1.DocumentKind_DOCUMENT_KIND_RESOURCE_PROFILE, Name: "payments-postgres", SpecJson: `{"settable":{"postgres.endpoint":{}},"labels":{}}`}, nil) //nolint:errcheck // already seeded in start
+	ctx := context.Background()
+	doc := &managev1.Document{Kind: managev1.DocumentKind_DOCUMENT_KIND_RESOURCE, Name: "payments-x", Profile: "payments-postgres", SpecJson: `{"postgres":{"endpoint":"a:1"}}`}
+	created, err := c.Manage.CreateDocument(ctx, &managev1.CreateDocumentRequest{Document: doc, Ownership: &managev1.Ownership{Source: "terraform/a", Namespace: "payments"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	etag := created.GetResult().GetDocuments()[0].GetEtag()
+	_, err = c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: etag})
+	if !client.IsCode(err, codes.InvalidArgument) || !strings.Contains(err.Error(), "ownership.source is required") {
+		t.Fatalf("an update without an owner: %v", err)
+	}
+	_, err = c.Manage.DeleteDocument(ctx, &managev1.DeleteDocumentRequest{Kind: doc.Kind, Name: doc.Name, Etag: etag})
+	if !client.IsCode(err, codes.InvalidArgument) {
+		t.Fatalf("a delete without an owner: %v", err)
+	}
+	other := &managev1.Ownership{Source: "terraform/b", Namespace: "payments"}
+	_, err = c.Manage.DeleteDocument(ctx, &managev1.DeleteDocumentRequest{Kind: doc.Kind, Name: doc.Name, Etag: etag, Ownership: other})
+	if !client.Is(err, client.ReasonOwnedElsewhere) {
+		t.Fatalf("another source's delete: %v", err)
+	}
+}

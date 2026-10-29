@@ -58,6 +58,14 @@ type Client struct {
 	creds *Credentials
 }
 
+// Reusable reports whether the client can still serve calls: its credentials
+// have not expired, or can be renewed.
+func (c *Client) Reusable() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cfg.Auth.Renewable() || time.Until(c.creds.ExpiresAt) > c.cfg.RenewBefore
+}
+
 // ServerVersion is the control plane's version, from GetAuthConfig.
 func (c *Client) ServerVersion() string { return c.authConfig.GetServerVersion() }
 
@@ -301,9 +309,9 @@ func Retryable(err error, attempt int, p RetryPolicy) (time.Duration, bool) {
 			return min(apiErr.RetryAfter, p.MaxDelay), true
 		}
 		return backoff, true
-	case codes.Aborted:
-		return backoff, true
 	}
+	// Aborted is not retried here: it means a listing's page token is stale,
+	// which only starting the listing again fixes (Client.ListAll).
 	return 0, false
 }
 

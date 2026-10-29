@@ -5,9 +5,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -43,6 +45,18 @@ type Authenticator interface {
 	Renewable() bool
 	// Describe names the method for messages, never including a secret.
 	Describe() string
+	// CacheKey identifies these credentials: two authenticators with the same
+	// key log in as the same principal the same way, so one login can serve
+	// both. It never contains a secret, only a digest of one.
+	CacheKey() string
+}
+
+func digest(parts ...string) string {
+	h := sha256.New()
+	for _, p := range parts {
+		_, _ = fmt.Fprintf(h, "%d:%s|", len(p), p)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:24]
 }
 
 // ---- Bots ------------------------------------------------------------------
@@ -91,6 +105,21 @@ func (b *BotAuth) usesGitHubRuntime() bool {
 // Renewable: GitHub mints tokens on demand and files can be rotated
 // (Kubernetes projected tokens); a literal token or a variable can't change.
 func (b *BotAuth) Renewable() bool { return b.usesGitHubRuntime() || b.TokenFile != "" }
+
+// CacheKey includes a digest of the token when it is given directly or in a
+// variable: a different token is a different login. A token file is keyed by
+// its path, since its content is meant to rotate.
+func (b *BotAuth) CacheKey() string {
+	env := ""
+	if b.Token == "" && b.TokenFile == "" && !b.usesGitHubRuntime() {
+		name := b.TokenEnv
+		if name == "" {
+			name = DefaultTokenEnv
+		}
+		env = b.getenv(name)
+	}
+	return "bot:" + digest(b.Method, b.Bot, b.Audience, b.Token, b.TokenFile, b.TokenEnv, env)
+}
 
 func (b *BotAuth) Describe() string {
 	name := b.Bot
@@ -251,6 +280,7 @@ type CertificateAuth struct {
 	KeyPEM  string
 }
 
+func (c *CertificateAuth) CacheKey() string { return "cert:" + digest(c.CertPEM, c.KeyPEM) }
 func (c *CertificateAuth) Renewable() bool  { return false }
 func (c *CertificateAuth) Describe() string { return "the configured client certificate" }
 
@@ -323,7 +353,8 @@ type ProfileAuth struct {
 	Proxy string
 }
 
-func (p *ProfileAuth) Renewable() bool { return false }
+func (p *ProfileAuth) CacheKey() string { return "profile:" + digest(p.Home, p.Proxy) }
+func (p *ProfileAuth) Renewable() bool  { return false }
 func (p *ProfileAuth) Describe() string {
 	return fmt.Sprintf("the Limen CLI's login for %s", p.Proxy)
 }

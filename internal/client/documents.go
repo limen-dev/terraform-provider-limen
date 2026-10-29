@@ -80,15 +80,40 @@ func (c *Client) GetDocument(ctx context.Context, kind managev1.DocumentKind, na
 
 // ListFilter selects documents for ListAll.
 type ListFilter struct {
+	// PageSize is documents per page; 0 means 500, the most Limen serves.
+	PageSize  int32
 	Kind      managev1.DocumentKind
 	Namespace string
 	Source    string
 	Labels    map[string]string
 }
 
+// maxListRestarts bounds how often a listing starts over because the policy
+// changed under it.
+const maxListRestarts = 5
+
 // ListAll reads every page of a listing, which Limen serves from one policy
-// version.
+// version. When the policy changes during the listing, Limen refuses the
+// next page with ABORTED and the listing starts again from the first page.
 func (c *Client) ListAll(ctx context.Context, f ListFilter) ([]*managev1.Document, int64, error) {
+	for restart := 0; ; restart++ {
+		docs, version, err := c.listOnce(ctx, f)
+		if IsCode(err, codes.Aborted) && restart < maxListRestarts {
+			c.cfg.Logf("the policy changed during a listing of %s; starting it again", KindName(f.Kind))
+			continue
+		}
+		return docs, version, err
+	}
+}
+
+func pageSize(n int32) int32 {
+	if n <= 0 {
+		return 500
+	}
+	return n
+}
+
+func (c *Client) listOnce(ctx context.Context, f ListFilter) ([]*managev1.Document, int64, error) {
 	var (
 		out     []*managev1.Document
 		token   string
@@ -100,7 +125,7 @@ func (c *Client) ListAll(ctx context.Context, f ListFilter) ([]*managev1.Documen
 			Namespace:     f.Namespace,
 			Source:        f.Source,
 			LabelSelector: f.Labels,
-			PageSize:      500,
+			PageSize:      pageSize(f.PageSize),
 			PageToken:     token,
 		})
 		if err != nil {

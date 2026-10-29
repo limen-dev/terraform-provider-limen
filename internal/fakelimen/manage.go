@@ -486,6 +486,10 @@ func (s *Server) writeOnce(c caller, ops []operation, opts *managev1.WriteOption
 	}
 	held := false
 	for _, op := range ops {
+		if s.opts.Stage1 && op.kind() != managev1.DocumentKind_DOCUMENT_KIND_RESOURCE {
+			return nil, status.Errorf(codes.Unimplemented,
+				"writing %s documents through the management API comes in a later stage; apply them from files", kindName(op.kind()))
+		}
 		before := len(st.changed)
 		if err := s.apply(c, st, op); err != nil {
 			return nil, err
@@ -694,8 +698,40 @@ func (s *Server) existing(c caller, st *staged, kind managev1.DocumentKind, name
 	return d, nil
 }
 
+// callerOwner is the owner a caller writes as: a source is required, and the
+// namespace defaults to the writer's own, else `default` (like Limen's).
+func callerOwner(c caller, given *managev1.Ownership) (*managev1.Ownership, error) {
+	if given.GetSource() == "" {
+		return nil, status.Error(codes.InvalidArgument,
+			"ownership.source is required: it names this writer, such as terraform/payments-prod")
+	}
+	o := &managev1.Ownership{Channel: managev1.Channel_CHANNEL_API, Source: given.GetSource(), Namespace: given.GetNamespace()}
+	if o.Namespace == "" {
+		o.Namespace = "default"
+		if c.writer != nil {
+			o.Namespace = c.writer.Namespace
+		}
+	}
+	return o, nil
+}
+
+// mustOwn refuses a write by someone who is not the document's owner.
+func mustOwn(given, cur *managev1.Ownership) error {
+	if given.GetSource() != cur.GetSource() || given.GetNamespace() != cur.GetNamespace() {
+		return ownedElsewhere(cur)
+	}
+	return nil
+}
+
 func (s *Server) applyUpdate(c caller, st *staged, req *managev1.UpdateDocumentRequest) error {
 	in := req.GetDocument()
+	if req.GetEtag() == "" {
+		return status.Error(codes.InvalidArgument, "etag is required")
+	}
+	owner, err := callerOwner(c, req.GetOwnership())
+	if err != nil {
+		return err
+	}
 	cur, err := s.existing(c, st, in.GetKind(), in.GetName())
 	if err != nil {
 		return err
@@ -705,6 +741,9 @@ func (s *Server) applyUpdate(c caller, st *staged, req *managev1.UpdateDocumentR
 	}
 	if cur.Ownership.GetChannel() != managev1.Channel_CHANNEL_API {
 		return ownedElsewhere(cur.Ownership)
+	}
+	if err := mustOwn(owner, cur.Ownership); err != nil {
+		return err
 	}
 	if req.GetEtag() != cur.Etag {
 		return etagMismatch(cur.Etag)
@@ -726,6 +765,13 @@ func (s *Server) applyUpdate(c caller, st *staged, req *managev1.UpdateDocumentR
 }
 
 func (s *Server) applyDelete(c caller, st *staged, req *managev1.DeleteDocumentRequest) error {
+	if req.GetEtag() == "" && !req.GetAllowMissing() {
+		return status.Error(codes.InvalidArgument, "etag is required unless allow_missing")
+	}
+	owner, err := callerOwner(c, req.GetOwnership())
+	if err != nil {
+		return err
+	}
 	cur, err := s.existing(c, st, req.GetKind(), req.GetName())
 	if err != nil {
 		return err
@@ -738,6 +784,9 @@ func (s *Server) applyDelete(c caller, st *staged, req *managev1.DeleteDocumentR
 	}
 	if cur.Ownership.GetChannel() != managev1.Channel_CHANNEL_API {
 		return ownedElsewhere(cur.Ownership)
+	}
+	if err := mustOwn(owner, cur.Ownership); err != nil {
+		return err
 	}
 	if req.GetEtag() != cur.Etag && (!req.GetAllowMissing() || req.GetEtag() != "") {
 		return etagMismatch(cur.Etag)
@@ -863,6 +912,9 @@ func (m *manageServer) GetDocument(ctx context.Context, req *managev1.GetDocumen
 	if req.GetKind() == managev1.DocumentKind_DOCUMENT_KIND_UNSPECIFIED {
 		return nil, status.Error(codes.InvalidArgument, "kind is required")
 	}
+	if s.opts.Stage1 && req.GetPolicyVersion() != 0 && req.GetPolicyVersion() != s.version {
+		return nil, status.Error(codes.Unimplemented, "reading a past policy version comes in a later stage")
+	}
 	d := s.docs[docKey{req.GetKind(), req.GetName()}]
 	if d == nil {
 		return nil, status.Errorf(codes.NotFound, "no %s/%s", kindName(req.GetKind()), req.GetName())
@@ -915,9 +967,18 @@ func (m *manageServer) ListDocuments(ctx context.Context, req *managev1.ListDocu
 	}
 	start := 0
 	if t := req.GetPageToken(); t != "" {
-		if start, err = strconv.Atoi(t); err != nil || start < 0 || start > len(all) {
+		// The token pins the policy version: a listing that outlives a
+		// change is refused, and the client starts it again.
+		ver, off, ok := strings.Cut(t, ":")
+		v, errV := strconv.ParseInt(ver, 10, 64)
+		o, errO := strconv.Atoi(off)
+		if !ok || errV != nil || errO != nil || o < 0 || o > len(all) {
 			return nil, status.Error(codes.InvalidArgument, "bad page token")
 		}
+		if v != s.version {
+			return nil, status.Error(codes.Aborted, "the policy changed during the listing; start it again")
+		}
+		start = o
 	}
 	end := min(start+size, len(all))
 	resp := &managev1.ListDocumentsResponse{PolicyVersion: s.version}
@@ -925,7 +986,7 @@ func (m *manageServer) ListDocuments(ctx context.Context, req *managev1.ListDocu
 		resp.Documents = append(resp.Documents, cloneDoc(d))
 	}
 	if end < len(all) {
-		resp.NextPageToken = strconv.Itoa(end)
+		resp.NextPageToken = fmt.Sprintf("%d:%d", s.version, end)
 	}
 	return resp, nil
 }
@@ -1090,6 +1151,9 @@ func (m *manageServer) ListPolicyVersions(ctx context.Context, _ *managev1.ListP
 }
 
 func (m *manageServer) GetSchema(_ context.Context, req *managev1.GetSchemaRequest) (*managev1.GetSchemaResponse, error) {
+	if m.s.opts.Stage1 {
+		return nil, status.Error(codes.Unimplemented, "the spec schema comes in a later stage")
+	}
 	if req.GetKind() == managev1.DocumentKind_DOCUMENT_KIND_UNSPECIFIED {
 		return nil, status.Error(codes.InvalidArgument, "kind is required")
 	}

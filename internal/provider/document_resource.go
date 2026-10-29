@@ -574,7 +574,7 @@ func (r *documentResource) dryRun(ctx context.Context, plan *documentModel, prof
 			results = append(results, resp.GetResult())
 		}
 		if contentChanged && !ownerChanged {
-			resp, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: state.Etag.ValueString(), Options: r.data.writeOptions(true)})
+			resp, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: state.Etag.ValueString(), Ownership: ownership(state), Options: r.data.writeOptions(true)})
 			if !note(err, "Checking the change to "+r.ref(name)+" with Limen") {
 				return
 			}
@@ -636,7 +636,7 @@ func (r *documentResource) planDestroy(ctx context.Context, req resource.ModifyP
 	}
 	name := state.Name.ValueString()
 	res, err := r.data.client.Manage.DeleteDocument(ctx, &managev1.DeleteDocumentRequest{
-		Kind: r.k.kind, Name: name, Etag: state.Etag.ValueString(), AllowMissing: true, Options: r.data.writeOptions(true),
+		Kind: r.k.kind, Name: name, Etag: state.Etag.ValueString(), AllowMissing: true, Ownership: ownership(&state), Options: r.data.writeOptions(true),
 	})
 	if err != nil {
 		if client.Is(err, client.ReasonApprovalRequired) {
@@ -718,7 +718,7 @@ func (r *documentResource) adopt(ctx context.Context, plan *documentModel, doc *
 		return nil, fmt.Errorf("%s already exists, owned by channel %q, source %q, namespace %q. Names are unique per kind; choose another, or import it",
 			r.ref(name), client.ChannelName(o.GetChannel()), o.GetSource(), o.GetNamespace())
 	}
-	check, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: cur.GetEtag(), Options: &managev1.WriteOptions{ValidateOnly: true}})
+	check, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: cur.GetEtag(), Ownership: ownership(plan), Options: &managev1.WriteOptions{ValidateOnly: true}})
 	if err != nil {
 		return nil, err
 	}
@@ -822,7 +822,8 @@ func (r *documentResource) Update(ctx context.Context, req resource.UpdateReques
 			resp.Diagnostics.AddAttributeError(path.Root("spec"), "Invalid spec", err.Error())
 			return
 		}
-		res, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: etag, Options: r.data.writeOptions(false)})
+		// The owner is plan's: a transfer above already moved the document there.
+		res, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: etag, Ownership: ownership(&plan), Options: r.data.writeOptions(false)})
 		if err == nil {
 			written, err = r.finish(ctx, res.GetResult(), name)
 		}
@@ -850,7 +851,7 @@ func (r *documentResource) Delete(ctx context.Context, req resource.DeleteReques
 	}
 	name := state.Name.ValueString()
 	res, err := r.data.client.Manage.DeleteDocument(ctx, &managev1.DeleteDocumentRequest{
-		Kind: r.k.kind, Name: name, Etag: state.Etag.ValueString(), AllowMissing: true, Options: r.data.writeOptions(false),
+		Kind: r.k.kind, Name: name, Etag: state.Etag.ValueString(), AllowMissing: true, Ownership: ownership(&state), Options: r.data.writeOptions(false),
 	})
 	if err == nil && res.GetResult().GetOutcome() == managev1.WriteOutcome_WRITE_OUTCOME_PENDING_APPROVAL {
 		err = r.awaitApproval(ctx, res.GetResult().GetPendingChange(), name)
