@@ -342,8 +342,9 @@ func (p *limenProvider) Configure(ctx context.Context, req provider.ConfigureReq
 		CACertPEM:  caPEM,
 		ServerName: cfg.TLSServerName.ValueString(),
 		Auth:       auth,
-		UserAgent:  "terraform-provider-limen/" + p.version,
-		Logf:       func(f string, a ...any) { tflog.Debug(ctx, fmt.Sprintf(f, a...)) },
+		// The CLI's version too, for whoever reads the control plane's logs.
+		UserAgent: fmt.Sprintf("terraform-provider-limen/%s (terraform/%s)", p.version, req.TerraformVersion),
+		Logf:      func(f string, a ...any) { tflog.Debug(ctx, fmt.Sprintf(f, a...)) },
 	})
 	if err != nil {
 		summary, detail := client.Explain(err)
