@@ -706,3 +706,34 @@ resource "limen_resource" "db" {
 		t.Fatalf("BotLogin was called %d times; a one-use token allows exactly one", logins)
 	}
 }
+
+// The documented way to adopt a document: an import block, by name.
+func TestAccImportBlock(t *testing.T) {
+	e := newEnv(t)
+	if err := e.srv.Seed(&managev1.Document{Kind: kindResource, Name: "legacy-db", SpecJson: `{"tcp":{"address":"10.0.0.9:5432"}}`},
+		&managev1.Ownership{Channel: managev1.Channel_CHANNEL_API, Source: "terraform/test", Namespace: "default"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := e.adminProvider("") + `
+resource "limen_resource" "legacy" {
+  name = "legacy-db"
+  spec = { tcp = { address = "10.0.0.9:5432" } }
+}
+
+import {
+  to = limen_resource.legacy
+  id = "legacy-db"
+}`
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{{
+			Config: cfg,
+			ConfigPlanChecks: resource.ConfigPlanChecks{
+				PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("limen_resource.legacy", plancheck.ResourceActionNoop)},
+			},
+			ConfigStateChecks: []statecheck.StateCheck{
+				statecheck.ExpectKnownValue("limen_resource.legacy", tfjsonpath.New("source"), knownvalue.StringExact("terraform/test")),
+			},
+		}},
+	})
+}

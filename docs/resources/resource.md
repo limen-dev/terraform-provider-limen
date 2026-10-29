@@ -82,9 +82,12 @@ output "orders_db_region" {
 
 Import is supported using the following syntax:
 
-The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+In Terraform v1.5.0 and later, the [`import` block](https://developer.hashicorp.com/terraform/language/import) can be used with the `id` attribute, for example:
 
-```shell
-# By name, or as kind/name.
-terraform import limen_resource.orders_db payments-orders-db
+```terraform
+# By name, or as kind/name ("resource/payments-orders-db").
+import {
+  to = limen_resource.orders_db
+  id = "payments-orders-db"
+}
 ```
