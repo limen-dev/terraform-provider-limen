@@ -161,6 +161,9 @@ func Explain(err error) (summary, detail string) {
 		return "Too many writes",
 			tail("The provider retried until its deadline. Lower terraform's -parallelism, or ask an admin about the control plane's write rate limit.")
 	case ReasonInUse:
+		if md["used_by"] == "" {
+			return "Still in use", tail("Something still depends on it: a resource that completes the profile, or a policy writer grant that names the bot or profile. Remove or change that first.")
+		}
 		return "Still in use",
 			tail(fmt.Sprintf("These documents use it: %s. Remove or change them first.", md["used_by"]))
 	case ReasonAuditUnavailable:
@@ -206,7 +209,7 @@ func grantHint(rule string) string {
 	case "name_pattern":
 		return "The name doesn't match any of the writer's name patterns (see limen_caller.grant.name_patterns)."
 	case "kind":
-		return "The writer may not write this kind. bot, discovery, resource_profile, and policy_writer are written only by people."
+		return "The writer may not write this kind. bot, discovery, resource_profile, and policy_writer are written only by people: log the provider in as a person with limen:admin (limen login) to manage them."
 	case "profile":
 		return "The writer may not complete this profile (see limen_caller.grant.profiles)."
 	case "label":
@@ -221,6 +224,10 @@ func grantHint(rule string) string {
 
 func transportHint(msg string) string {
 	switch {
+	case strings.Contains(msg, "certificate has expired"):
+		// Go words both cases alike ("expired or is not yet valid").
+		return "The proxy's certificate (or the one the provider presents) has expired or isn't valid yet; if it was just issued, check this machine's clock. For a dev or demo stack, restart it to reissue its certificates; " +
+			"otherwise renew the proxy's certificate. If the login is the Limen CLI's, run limen login again."
 	case strings.Contains(msg, "certificate signed by unknown authority"),
 		strings.Contains(msg, "x509:"):
 		return "The proxy's certificate isn't signed by the CA the provider trusts. Set ca_certificate (or LIMEN_CA_FILE) to the proxy's CA."

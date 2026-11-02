@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -190,6 +191,39 @@ type providerData struct {
 	nsOnce sync.Once
 	nsVal  string
 	nsErr  error
+
+	// changing is what this run's plan changes, so a dry run that Limen
+	// refuses because of a document the same run creates isn't fatal.
+	changing changeSet
+}
+
+// changeSet is the documents ("kind/name") a plan creates, updates, or deletes.
+type changeSet struct {
+	mu   sync.Mutex
+	refs map[string]struct{}
+}
+
+func (c *changeSet) add(ref string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.refs == nil {
+		c.refs = map[string]struct{}{}
+	}
+	c.refs[ref] = struct{}{}
+}
+
+// others is the sorted changes of the run except ref.
+func (c *changeSet) others(ref string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for r := range c.refs {
+		if r != ref {
+			out = append(out, r)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // defaultNamespace is the configured namespace, else the bot's grant's,
@@ -450,7 +484,7 @@ func envString(name string) types.String {
 
 func (p *limenProvider) Resources(context.Context) []func() resource.Resource {
 	var out []func() resource.Resource
-	for _, k := range writableKinds {
+	for _, k := range allKinds {
 		out = append(out, newDocumentResource(k))
 	}
 	return out

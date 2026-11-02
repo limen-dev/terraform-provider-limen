@@ -16,8 +16,8 @@ resource "limen_resource" "orders_db" {
 }
 ```
 
-> [!NOTE]
-> **Early.** Limen serves stage 1 of its management API ([ADR-0042](https://github.com/limen-dev/limen/blob/main/docs/adr/0042-management-api.md)), which writes **resources only**. `limen_role`, `limen_role_mapping`, and `limen_policy_test` fail with a clear message until stage 2 ([limen#73](https://github.com/limen-dev/limen/issues/73)). Nothing is released yet.
+> [!IMPORTANT]
+> **Status: checked against Limen's Phase 14 control plane, not yet released.** The provider implements `limen.manage.v1` ([ADR-0042](https://github.com/limen-dev/limen/blob/main/docs/adr/0042-management-api.md), [`manage.proto`](proto/limen/manage/v1/manage.proto)). `TestLiveAdminLifecycle` runs seven kinds of document (every kind but `discovery`, which was applied, planned, and destroyed by hand) in one apply, then an empty second plan, an update, an import, and a destroy against a real control plane (Limen `main` at `fc6495b`, the demo stack), and a bot's held change was approved from the CLI and picked up by the next apply. CI still runs only against [`internal/fakelimen`](internal/fakelimen). Not yet checked: real GitHub tokens (the demo's issuer is a stand-in), `--widening-approval=all`, and a Limen behind a load balancer.
 
 ## Usage
 
@@ -42,10 +42,10 @@ A person first grants the bot a `policy_writer` (its namespace, name patterns, a
 
 | | |
 |---|---|
-| **Resources** | `limen_resource`, `limen_role`, `limen_role_mapping`, `limen_policy_test` |
-| **Data sources** | `limen_<kind>` for every kind (including `bot`, `resource_profile`, `policy_writer`, `discovery`), `limen_documents`, `limen_caller`, `limen_schema` |
+| **Resources** | `limen_resource`, `limen_role`, `limen_role_mapping`, `limen_policy_test`, and the people-only `limen_bot`, `limen_resource_profile`, `limen_policy_writer`, `limen_discovery` |
+| **Data sources** | `limen_<kind>` for every kind, `limen_documents`, `limen_caller`, `limen_schema` |
 
-`bot`, `resource_profile`, `policy_writer`, and `discovery` are data sources only: Limen lets only people write them, so a pipeline can't widen its own grant. A `spec` has exactly the shape of the YAML spec, so `yamldecode(file("role.yaml"))` works. Full reference: [`docs/`](docs/index.md).
+`bot`, `resource_profile`, `policy_writer`, and `discovery` can be written only by **people**, so a pipeline can't widen its own grant: manage them from a state whose provider is logged in as a person (`limen login`, or a client certificate). A bot is refused with a message saying so. See the [platform and team states guide](docs/guides/split-states.md). A `spec` has exactly the shape of the YAML spec, so `yamldecode(file("role.yaml"))` works. Full reference: [`docs/`](docs/index.md).
 
 ## How it behaves
 
@@ -70,9 +70,9 @@ Every setting has a `LIMEN_*` environment variable. A bot's token works once: th
 
 | Provider | Limen | Terraform | OpenTofu |
 |---|---|---|---|
-| 0.x | Phase 14 stage 1 (resources); stage 2 for the other kinds | 1.5+ | 1.6+ |
+| 0.x | Phase 14 (every document kind) | 1.5+ | 1.6+ |
 
-CI runs the acceptance tests on the oldest and newest of each CLI against [`internal/fakelimen`](internal/fakelimen), an in-memory stand-in for the API. Create, update, delete, and import are **not yet verified against a real control plane**; login, reads, and plan-time dry runs are.
+CI runs the acceptance tests on the oldest and newest of each CLI against [`internal/fakelimen`](internal/fakelimen), an in-memory stand-in for the API. Create, update, delete, import, held changes, and plan-time dry runs were verified by hand against a real Phase 14 control plane (see the status note above).
 
 ## Development
 

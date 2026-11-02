@@ -167,11 +167,17 @@ func (r *documentResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				"a resource without a profile is written in full, which only people with `limen:admin` may do.",
 		}
 	}
+	footer := resourceFooter
+	if r.k.people {
+		footer = peopleFooter + " " + footer
+	}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: r.k.doc + "\n\n" + resourceFooter,
+		MarkdownDescription: r.k.doc + "\n\n" + footer,
 		Attributes:          attrs,
 	}
 }
+
+const peopleFooter = "A bot's login is refused for this kind (`OUTSIDE_GRANT`, rule `kind`)."
 
 const resourceFooter = "Every write is checked against the document's etag and owner, so Terraform never overwrites a change it hasn't seen, " +
 	"and never touches a document another channel (Git, the console) or another source owns. " +
@@ -336,6 +342,8 @@ func setContent(ctx context.Context, m *documentModel, doc *managev1.Document, l
 	return nil
 }
 
+// ownership is who m says owns the document. Update and delete write as the
+// document's current owner; a transfer names the new one.
 func ownership(m *documentModel) *managev1.Ownership {
 	return &managev1.Ownership{Source: m.Source.ValueString(), Namespace: m.Namespace.ValueString()}
 }
@@ -482,6 +490,9 @@ func (r *documentResource) ModifyPlan(ctx context.Context, req resource.ModifyPl
 		plan.EffectiveSpecJSON, plan.EffectiveLabels = state.EffectiveSpecJSON, state.EffectiveLabels
 	}
 	resp.Diagnostics.Append(r.set(ctx, resp.Plan.Set, plan, planProfile)...)
+	if contentChanged || ownerChanged || state != nil && !plan.Name.Equal(state.Name) {
+		r.data.changing.add(r.ref(plan.Name.ValueString()))
+	}
 	if state != nil && ownerChanged && state.Channel.ValueString() != "" && state.Channel.ValueString() != "api" {
 		resp.Diagnostics.AddWarning("Taking over a document: "+r.ref(plan.Name.ValueString()),
 			fmt.Sprintf("%s is owned by channel %q, source %q, namespace %q. Apply moves it to this configuration (source %q, namespace %q), "+
@@ -550,6 +561,9 @@ func (r *documentResource) dryRun(ctx context.Context, plan *documentModel, prof
 					approvalHint(r.data.approvalTimeout))
 			return false
 		}
+		if r.dependsOnRun(diags, name, err) {
+			return false
+		}
 		addError(diags, doing, err)
 		return false
 	}
@@ -584,6 +598,34 @@ func (r *documentResource) dryRun(ctx context.Context, plan *documentModel, prof
 	for _, res := range results {
 		addImpact(diags, addr, res.GetImpact())
 	}
+}
+
+// dependsOnRun turns a refusal into a warning when it can come from a
+// document this same run changes. Limen checks a plan's dry run against the
+// policy as it is now, so a bot that names a role the run creates is
+// "invalid" until the role exists. Apply writes in dependency order and
+// Limen checks again, so a refusal that is real still fails there.
+func (r *documentResource) dependsOnRun(diags *diag.Diagnostics, name string, err error) bool {
+	if !client.Is(err, client.ReasonInvalidDocument) && !client.Is(err, client.ReasonInUse) {
+		return false
+	}
+	_, detail := client.Explain(err)
+	// Only a refusal that names a document this run changes can be waiting
+	// on it; any other is real, and fails the plan.
+	var others []string
+	for _, o := range r.data.changing.others(r.ref(name)) {
+		if _, n, ok := strings.Cut(o, "/"); ok && strings.Contains(detail, n) {
+			others = append(others, o)
+		}
+	}
+	if len(others) == 0 {
+		return false
+	}
+	diags.AddWarning("Can't be fully checked yet: "+r.ref(name),
+		fmt.Sprintf("A dry run sees only the policy as it is now, and this run also changes %s, which this document may depend on. "+
+			"Apply checks again once those are written; a refusal that is real stops it there.\n\nLimen's answer now:\n\n%s",
+			strings.Join(others, ", "), detail))
+	return true
 }
 
 // pollInterval asks about a held change about 30 times over the wait,
@@ -635,10 +677,14 @@ func (r *documentResource) planDestroy(ctx context.Context, req resource.ModifyP
 		return
 	}
 	name := state.Name.ValueString()
+	r.data.changing.add(r.ref(name))
 	res, err := r.data.client.Manage.DeleteDocument(ctx, &managev1.DeleteDocumentRequest{
 		Kind: r.k.kind, Name: name, Etag: state.Etag.ValueString(), AllowMissing: true, Ownership: ownership(&state), Options: r.data.writeOptions(true),
 	})
 	if err != nil {
+		if r.dependsOnRun(&resp.Diagnostics, name, err) {
+			return
+		}
 		if client.Is(err, client.ReasonApprovalRequired) {
 			resp.Diagnostics.AddWarning("Delete will need approval: "+r.ref(name), approvalHint(r.data.approvalTimeout))
 			return
@@ -718,15 +764,27 @@ func (r *documentResource) adopt(ctx context.Context, plan *documentModel, doc *
 		return nil, fmt.Errorf("%s already exists, owned by channel %q, source %q, namespace %q. Names are unique per kind; choose another, or import it",
 			r.ref(name), client.ChannelName(o.GetChannel()), o.GetSource(), o.GetNamespace())
 	}
-	check, err := c.Manage.UpdateDocument(ctx, &managev1.UpdateDocumentRequest{Document: doc, Etag: cur.GetEtag(), Ownership: ownership(plan), Options: &managev1.WriteOptions{ValidateOnly: true}})
-	if err != nil {
-		return nil, err
-	}
-	if check.GetResult().GetOutcome() != managev1.WriteOutcome_WRITE_OUTCOME_UNCHANGED {
+	// Limen's dry run answers VALIDATED even when nothing would change, so
+	// compare what it stores with what is planned.
+	if !sameContent(cur, doc) {
 		return nil, fmt.Errorf("%s already exists in this source with different content, so it isn't taken over. "+
 			"If this configuration should own it, import it: terraform import %s %s", r.ref(name), r.address("<name>"), name)
 	}
 	return cur, nil
+}
+
+// sameContent reports whether the stored document says what doc says. Labels
+// and spec are what the writer sent, so no defaults get in the way.
+func sameContent(cur, doc *managev1.Document) bool {
+	if cur.GetDescription() != doc.GetDescription() || cur.GetProfile() != doc.GetProfile() || len(cur.GetLabels()) != len(doc.GetLabels()) {
+		return false
+	}
+	for k, v := range doc.GetLabels() {
+		if got, ok := cur.GetLabels()[k]; !ok || got != v {
+			return false
+		}
+	}
+	return specjson.Equal([]byte(cur.GetSpecJson()), []byte(doc.GetSpecJson()))
 }
 
 func jsonString(s string) []byte {

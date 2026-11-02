@@ -3,12 +3,15 @@
 page_title: "limen_policy_writer Data Source - limen"
 subcategory: ""
 description: |-
-  Reads one policy writer grant. A Limen policy writer: what one bot may write (ADR-0042 §4). Written only by people, through Git or the console; no grant can include this kind. A bot sees its own grant with the limen_caller data source.
+  Reads one policy writer grant. A Limen policy writer: what one bot may write (ADR-0042 §4). No grant can include this kind.
+  Only people write grants, so the provider must be logged in as a person with limen:admin (limen login), not as a bot; otherwise a pipeline could widen its own grant. A bot sees its own grant with the limen_caller data source.
 ---
 
 # limen_policy_writer (Data Source)
 
-Reads one policy writer grant. A Limen policy writer: what one bot may write (ADR-0042 §4). Written only by people, through Git or the console; no grant can include this kind. A bot sees its own grant with the `limen_caller` data source.
+Reads one policy writer grant. A Limen policy writer: what one bot may write (ADR-0042 §4). No grant can include this kind.
+
+Only people write grants, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot; otherwise a pipeline could widen its own grant. A bot sees its own grant with the `limen_caller` data source.
 
 ## Example Usage
 

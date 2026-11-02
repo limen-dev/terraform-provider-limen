@@ -18,6 +18,9 @@ type kindInfo struct {
 	specDoc string
 	// profile: the kind has the `profile` attribute (resources only).
 	profile bool
+	// people: only people (limen:admin) may write the kind; a bot's grant can
+	// never include it (ADR-0042 §4).
+	people bool
 }
 
 var (
@@ -62,38 +65,47 @@ var (
 		specDoc: "The test's `spec`: `cases`, each with `name`, `who`, `resource`, `principal`, and `expect`, in exactly the shape of the YAML spec.",
 	}
 	kindBot = kindInfo{
-		kind: managev1.DocumentKind_DOCUMENT_KIND_BOT,
-		name: "bot",
-		what: "bot",
-		doc: "A Limen bot: a machine identity that logs in with a CI platform's workload identity token (ADR-0019). " +
-			"Bots are written only by people, through Git or the console, so Terraform can read them but not write them.",
+		kind:   managev1.DocumentKind_DOCUMENT_KIND_BOT,
+		name:   "bot",
+		what:   "bot",
+		people: true,
+		doc: "A Limen bot: a machine identity that logs in with a CI platform's workload identity token (ADR-0019).\n\n" +
+			"Only people write bots, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot. " +
+			"Limen refuses to delete a bot that a policy writer still names.",
+		specDoc: "The bot's `spec`, in exactly the shape of the YAML spec: `join` (the CI platform and the exact claims a workload token must match), `roles`, and `max_ttl`.",
 	}
 	kindDiscovery = kindInfo{
-		kind: managev1.DocumentKind_DOCUMENT_KIND_DISCOVERY,
-		name: "discovery",
-		what: "discovery rule",
-		doc:  "A Limen discovery rule (ADR-0027). Written only by people, through Git or the console.",
+		kind:   managev1.DocumentKind_DOCUMENT_KIND_DISCOVERY,
+		name:   "discovery",
+		what:   "discovery rule",
+		people: true,
+		doc: "A Limen discovery rule (ADR-0027).\n\n" +
+			"Only people write discovery rules, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot.",
+		specDoc: "The discovery rule's `spec`, in exactly the shape of the YAML spec.",
 	}
 	kindResourceProfile = kindInfo{
-		kind: managev1.DocumentKind_DOCUMENT_KIND_RESOURCE_PROFILE,
-		name: "resource_profile",
-		what: "resource profile",
+		kind:   managev1.DocumentKind_DOCUMENT_KIND_RESOURCE_PROFILE,
+		name:   "resource_profile",
+		what:   "resource profile",
+		people: true,
 		doc: "A Limen resource profile: the fixed half of a resource, which writers complete (ADR-0042 §5). " +
-			"Its spec has the `template` a writer can't change, the `settable` fields and their bounds, and the label rules. " +
-			"Written only by people, through Git or the console. A bot writer may read the profiles its grant names.",
+			"Its spec has the `template` a writer can't change, the `settable` fields and their bounds, and the label rules.\n\n" +
+			"Only people write profiles, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot. " +
+			"Limen refuses to delete a profile that resources still complete or that a policy writer still names.",
+		specDoc: "The profile's `spec`, in exactly the shape of the YAML spec: `template`, `settable`, and `labels`.",
 	}
 	kindPolicyWriter = kindInfo{
-		kind: managev1.DocumentKind_DOCUMENT_KIND_POLICY_WRITER,
-		name: "policy_writer",
-		what: "policy writer grant",
-		doc: "A Limen policy writer: what one bot may write (ADR-0042 §4). Written only by people, through Git or the console; " +
-			"no grant can include this kind. A bot sees its own grant with the `limen_caller` data source.",
+		kind:   managev1.DocumentKind_DOCUMENT_KIND_POLICY_WRITER,
+		name:   "policy_writer",
+		what:   "policy writer grant",
+		people: true,
+		doc: "A Limen policy writer: what one bot may write (ADR-0042 §4). No grant can include this kind.\n\n" +
+			"Only people write grants, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot; " +
+			"otherwise a pipeline could widen its own grant. A bot sees its own grant with the `limen_caller` data source.",
+		specDoc: "The grant's `spec`, in exactly the shape of the YAML spec: `bot`, `namespace`, `names`, `kinds`, `profiles`, and so on.",
 	}
 )
 
-// writableKinds are the kinds Terraform may write: everything except the
-// people-only kinds.
-var writableKinds = []kindInfo{kindResource, kindRole, kindRoleMapping, kindPolicyTest}
-
-// allKinds have data sources.
+// allKinds have a resource and a data source. The people-only kinds are
+// writable only when the provider is logged in as a person.
 var allKinds = []kindInfo{kindResource, kindRole, kindRoleMapping, kindPolicyTest, kindBot, kindDiscovery, kindResourceProfile, kindPolicyWriter}

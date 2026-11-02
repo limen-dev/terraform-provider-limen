@@ -46,7 +46,7 @@ variable "pull_request" {
 
 - **One owner per document.** Every document has an owner, `{channel, source, namespace}`. Documents this provider creates are owned by channel `api`, the provider's `default_source`, and its namespace. Another owner's document (from `limen admin apply`, the console, or another state's source) is never written: the plan fails and names the owner.
 - **No lost updates.** Every write sends the document's etag. A change made in Limen between plan and apply is refused, never merged or overwritten. Changes made outside Terraform show as drift and are put back by the next apply.
-- **Bots get the narrowest right, never `limen:admin`.** A bot writes through a `policy_writer` grant: one namespace, name patterns, kinds, and the resource profiles it may complete. `bot`, `discovery`, `resource_profile`, and `policy_writer` documents are written only by people, so they are data sources here, not resources.
+- **Bots get the narrowest right, never `limen:admin`.** A bot writes through a `policy_writer` grant: one namespace, name patterns, kinds, and the resource profiles it may complete. `bot`, `discovery`, `resource_profile`, and `policy_writer` documents are written only by people: they are resources here too, but Limen refuses them to a bot's login, so manage them from a state applied with `limen login` or a person's client certificate.
 - **Plans are real dry runs.** During plan the provider sends each change with `validate_only` (`plan_checks`): authorization, validation, profiles, and tests all run, and who gains or loses access is shown as a warning beside the diff.
 - **Widening needs a person.** A bot's change that widens standing access is held for approval. The plan says so; apply fails naming the change, or waits for it with `approval_timeout`. After approval, apply again: the provider finds the document in place.
 
@@ -79,9 +79,9 @@ Limen never lets a pull request run log in as a bot (ADR-0019), so set `offline 
 
 | Provider | Limen control plane | Terraform | OpenTofu |
 |---|---|---|---|
-| 0.x | Phase 14 stage 1 serves `limen.manage.v1` for resources; stage 2 adds roles, role mappings, policy tests, and `limen_schema` | 1.5 and later | 1.6 and later |
+| 0.x | Phase 14: `limen.manage.v1` serves every document kind (`limen_schema` needs `GetSchema`, not yet served) | 1.5 and later | 1.6 and later |
 
-Against a control plane without the API, every call fails with "This Limen doesn't serve the management API". Against stage 1, writing a role, role mapping, or policy test fails with "This Limen doesn't support that yet": apply those documents from files until stage 2.
+Against a control plane without the API, every call fails with "This Limen doesn't serve the management API".
 
 Reading a past `policy_version` in a data source is not served yet either.
 
