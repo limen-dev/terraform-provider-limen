@@ -3,12 +3,15 @@
 page_title: "limen_bot Data Source - limen"
 subcategory: ""
 description: |-
-  Reads one bot. A Limen bot: a machine identity that logs in with a CI platform's workload identity token (ADR-0019). Bots are written only by people, through Git or the console, so Terraform can read them but not write them.
+  Reads one bot. A Limen bot: a machine identity that logs in with a CI platform's workload identity token (ADR-0019).
+  Only people write bots, so the provider must be logged in as a person with limen:admin (limen login), not as a bot. Limen refuses to delete a bot that a policy writer still names.
 ---
 
 # limen_bot (Data Source)
 
-Reads one bot. A Limen bot: a machine identity that logs in with a CI platform's workload identity token (ADR-0019). Bots are written only by people, through Git or the console, so Terraform can read them but not write them.
+Reads one bot. A Limen bot: a machine identity that logs in with a CI platform's workload identity token (ADR-0019).
+
+Only people write bots, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot. Limen refuses to delete a bot that a policy writer still names.
 
 ## Example Usage
 

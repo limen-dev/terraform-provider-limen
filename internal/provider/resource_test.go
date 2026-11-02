@@ -316,7 +316,7 @@ resource "limen_role_mapping" "payments" {
 		Steps: []resource.TestStep{
 			{
 				Config:      cfg,
-				ExpectError: regexp.MustCompile(`(?s)Change is waiting for approval.*change:\s+chg-0001.*limen policy\s+changes approve chg-0001`),
+				ExpectError: regexp.MustCompile(`(?s)Change is waiting for approval.*change:\s+chg-0001.*limen\s+manage\s+changes\s+show\s+chg-0001`),
 			},
 			{
 				// Applying again before anyone decides replaces the request.
@@ -735,5 +735,197 @@ import {
 				statecheck.ExpectKnownValue("limen_resource.legacy", tfjsonpath.New("source"), knownvalue.StringExact("terraform/test")),
 			},
 		}},
+	})
+}
+
+// A person manages the people-only kinds: a bot, a profile, a writer grant,
+// and a discovery rule. Limen refuses to delete what is still named.
+func TestAccPeopleOnlyKinds(t *testing.T) {
+	e := newEnv(t)
+	cfg := func(maxDocs int) string {
+		return e.adminProvider("") + fmt.Sprintf(`
+resource "limen_role" "deployer" {
+  name = "payments-deployer"
+  spec = { allow = [{ resources = { kind = ["ssh"] }, ssh = { logins = ["ubuntu"] } }] }
+}
+
+# Names a role this same apply creates: the plan's dry run can't see it yet.
+resource "limen_bot" "ci" {
+  name = "payments-ci"
+  spec = {
+    join    = { method = "github_actions", match = { repository = "acme/infra", ref = ["refs/heads/main"] } }
+    roles   = [limen_role.deployer.name]
+    max_ttl = "15m"
+  }
+}
+
+resource "limen_resource_profile" "tcp" {
+  name = "payments-tcp"
+  spec = {
+    template = { worker_selector = { network = "payments-vpc" } }
+    settable = { "tcp.address" = { hosts = ["*.payments.internal"], ports = [5432] } }
+    labels   = { fixed = { team = "payments" } }
+  }
+}
+
+resource "limen_policy_writer" "ci" {
+  name = "payments-ci"
+  spec = {
+    bot           = limen_bot.ci.name
+    namespace     = "payments"
+    names         = ["payments-*"]
+    kinds         = ["resource"]
+    profiles      = [limen_resource_profile.tcp.name]
+    max_documents = %d
+  }
+}
+
+resource "limen_discovery" "aws" {
+  name = "aws-prod"
+  spec = {
+    provider = "aws"
+    regions  = ["eu-west-1"]
+    interval = "5m"
+  }
+}
+`, maxDocs)
+	}
+	kinds := map[string]managev1.DocumentKind{
+		"payments-ci":  managev1.DocumentKind_DOCUMENT_KIND_BOT,
+		"payments-tcp": managev1.DocumentKind_DOCUMENT_KIND_RESOURCE_PROFILE,
+		"aws-prod":     managev1.DocumentKind_DOCUMENT_KIND_DISCOVERY,
+	}
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg(50),
+				Check: func(*terraform.State) error {
+					for name, kind := range kinds {
+						if d := e.srv.Document(kind, name); d == nil || d.Ownership.GetChannel() != managev1.Channel_CHANNEL_API {
+							return fmt.Errorf("%s not written through the API: %v", name, d)
+						}
+					}
+					if e.srv.Document(managev1.DocumentKind_DOCUMENT_KIND_POLICY_WRITER, "payments-ci") == nil {
+						return fmt.Errorf("the writer grant isn't in Limen")
+					}
+					return nil
+				},
+			},
+			{
+				// An update of the grant is a person's, and leaves the rest alone.
+				Config: cfg(80),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("limen_policy_writer.ci", plancheck.ResourceActionUpdate),
+					plancheck.ExpectResourceAction("limen_bot.ci", plancheck.ResourceActionNoop),
+				}},
+				Check: resource.TestCheckResourceAttr("limen_policy_writer.ci", "spec.max_documents", "80"),
+			},
+			{
+				ResourceName:            "limen_resource_profile.tcp",
+				ImportState:             true,
+				ImportStateId:           "resource_profile/payments-tcp",
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"spec"},
+			},
+		},
+		CheckDestroy: func(*terraform.State) error {
+			for name, kind := range kinds {
+				if e.srv.Document(kind, name) != nil {
+					return fmt.Errorf("%s still in Limen after destroy", name)
+				}
+			}
+			return nil
+		},
+	})
+}
+
+// A bot's login can't write the people-only kinds, so a pipeline can't
+// widen its own grant: the plan says why and what to do.
+func TestAccBotCannotWritePeopleOnlyKinds(t *testing.T) {
+	e := newEnv(t)
+	e.asGitHubBot()
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{{
+			Config: e.botProvider("") + `
+resource "limen_policy_writer" "mine" {
+  name = "payments-mine"
+  spec = { bot = "payments-terraform", namespace = "payments", names = ["*"], kinds = ["role"] }
+}`,
+			ExpectError: regexp.MustCompile(`(?s)Outside this writer's grant.*written only by people.*limen login`),
+		}},
+	})
+}
+
+// Limen refuses to delete a profile that a resource still completes; the
+// message says what to do.
+func TestAccProfileInUse(t *testing.T) {
+	e := newEnv(t)
+	// payments-postgres is seeded by newEnv; a resource completes it.
+	if err := e.srv.Seed(&managev1.Document{
+		Kind: kindResource, Name: "payments-seeded", Profile: profile,
+		SpecJson: `{"postgres":{"endpoint":"a.c9xk2p.eu-west-1.rds.amazonaws.com:5432"}}`,
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	cfg := e.adminProvider("") + `
+resource "limen_resource_profile" "tmp" {
+  name = "payments-tmp"
+  spec = {
+    template = { worker_selector = { network = "payments-vpc" } }
+    settable = { "tcp.address" = { hosts = ["*.payments.internal"], ports = [5432] } }
+  }
+}
+`
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{
+			{Config: cfg},
+			{
+				PreConfig: func() {
+					if err := e.srv.Seed(&managev1.Document{
+						Kind: kindResource, Name: "payments-uses-tmp", Profile: "payments-tmp",
+						SpecJson: `{"tcp":{"address":"db.payments.internal:5432"}}`,
+					}, nil); err != nil {
+						t.Fatal(err)
+					}
+				},
+				Config:      e.adminProvider(""),
+				ExpectError: regexp.MustCompile(`(?s)Still in use.*payments-uses-tmp`),
+			},
+			{
+				// Once nothing completes it, the profile can go.
+				PreConfig: func() { e.srv.DeleteDocument(kindResource, "payments-uses-tmp") },
+				Config:    e.adminProvider(""),
+			},
+		},
+	})
+}
+
+// Limen checks a plan's dry run against the policy as it is now, so a
+// document naming a role the same apply creates is only warned about; one
+// that names a role that never exists still stops apply.
+func TestAccRefusalDependingOnTheRun(t *testing.T) {
+	e := newEnv(t)
+	cfg := func(role string) string {
+		return e.adminProvider("") + fmt.Sprintf(`
+resource "limen_role" "new" {
+  name = "payments-new"
+  spec = { allow = [{ resources = { kind = ["ssh"] }, ssh = { logins = ["ubuntu"] } }] }
+}
+
+resource "limen_role_mapping" "m" {
+  name = "payments-new-mapping"
+  spec = [{ idp_group = "payments-eng", roles = [%s] }]
+}
+`, role)
+	}
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: factories,
+		Steps: []resource.TestStep{
+			{Config: cfg("limen_role.new.name"), Check: resource.TestCheckResourceAttr("limen_role_mapping.m", "spec.0.roles.0", "payments-new")},
+			{Config: cfg(`"ghost"`), ExpectError: regexp.MustCompile(`(?s)unknown role "ghost"`)},
+		},
 	})
 }

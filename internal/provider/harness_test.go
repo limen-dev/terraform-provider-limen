@@ -78,6 +78,12 @@ func newEnvWith(t *testing.T, opts fakelimen.Options) *env {
 	}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := srv.Seed(&managev1.Document{
+		Kind: managev1.DocumentKind_DOCUMENT_KIND_ROLE, Name: "payments-read",
+		SpecJson: `{"allow":[{"resources":{"kind":["postgres"]},"db":{"roles":["limen_read"]}}]}`,
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
 	return &env{t: t, srv: srv, adminCert: cert, adminKey: key}
 }
 

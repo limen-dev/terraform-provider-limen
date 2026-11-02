@@ -145,11 +145,11 @@ func contains(xs []string, x string) bool {
 // authorize checks the grant before anything about the document, so a
 // writer learns nothing about names outside it.
 func (c caller) authorize(kind managev1.DocumentKind, name, namespace string) error {
-	if peopleOnly[kind] {
-		return outsideGrant("kind", kindName(kind)+" documents are written only by people, through git or the console")
-	}
 	if c.writer == nil {
 		return nil
+	}
+	if peopleOnly[kind] {
+		return outsideGrant("kind", kindName(kind)+" documents are written only by people, through git or the console")
 	}
 	if !c.matchesName(name) {
 		return outsideGrant("name_pattern", fmt.Sprintf("%q matches none of the writer's name patterns", name))
@@ -267,9 +267,56 @@ func (s *Server) complete(d *managev1.Document, _ string) error {
 			return invalid([2]string{"spec", "must be an object"})
 		}
 	}
+	if err := s.checkReferences(d, spec); err != nil {
+		return err
+	}
 	d.SpecJson = normalize(spec)
 	d.EffectiveSpecJson = normalize(effective)
 	d.EffectiveLabels = effectiveLabels
+	return nil
+}
+
+// checkReferences refuses a document that names a role, bot, or profile that
+// doesn't exist: the real validator does, against the policy as it is now,
+// which is why a plan's dry run can't see documents the same apply creates.
+func (s *Server) checkReferences(d *managev1.Document, spec any) error {
+	has := func(kind managev1.DocumentKind, name string) bool { return s.docs[docKey{kind, name}] != nil }
+	role := func(name string) error {
+		if !strings.HasPrefix(name, "limen:") && !has(managev1.DocumentKind_DOCUMENT_KIND_ROLE, name) {
+			return invalid([2]string{kindName(d.Kind) + " " + strconv.Quote(d.Name), "unknown role " + strconv.Quote(name)})
+		}
+		return nil
+	}
+	switch d.Kind {
+	case managev1.DocumentKind_DOCUMENT_KIND_BOT:
+		obj, _ := spec.(map[string]any)
+		roles, _ := obj["roles"].([]any)
+		for _, r := range roles {
+			if name, _ := r.(string); name != "" {
+				if err := role(name); err != nil {
+					return err
+				}
+			}
+		}
+	case managev1.DocumentKind_DOCUMENT_KIND_ROLE_MAPPING:
+		rows, _ := spec.([]any)
+		for _, row := range rows {
+			obj, _ := row.(map[string]any)
+			roles, _ := obj["roles"].([]any)
+			for _, r := range roles {
+				if name, _ := r.(string); name != "" {
+					if err := role(name); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	case managev1.DocumentKind_DOCUMENT_KIND_POLICY_WRITER:
+		obj, _ := spec.(map[string]any)
+		if bot, _ := obj["bot"].(string); bot != "" && !has(managev1.DocumentKind_DOCUMENT_KIND_BOT, bot) {
+			return invalid([2]string{"policy_writer " + strconv.Quote(d.Name), "unknown bot " + strconv.Quote(bot)})
+		}
+	}
 	return nil
 }
 
@@ -526,7 +573,7 @@ func (s *Server) writeOnce(c caller, ops []operation, opts *managev1.WriteOption
 		s.changes[ch.Id] = ch
 		return &managev1.WriteResult{Outcome: managev1.WriteOutcome_WRITE_OUTCOME_PENDING_APPROVAL, PolicyVersion: s.version, Impact: st.impact, PendingChange: proto.Clone(ch).(*managev1.PolicyChange)}, nil
 	}
-	if len(st.changed) == 0 {
+	if len(st.changed) == 0 && !opts.GetValidateOnly() {
 		return &managev1.WriteResult{Outcome: managev1.WriteOutcome_WRITE_OUTCOME_UNCHANGED, PolicyVersion: s.version, Documents: st.results(), Impact: st.impact}, nil
 	}
 	if opts.GetValidateOnly() {
@@ -574,6 +621,33 @@ func ownedElsewhere(o *managev1.Ownership) error {
 	return apiError(codes.FailedPrecondition, "OWNED_ELSEWHERE",
 		fmt.Sprintf("managed by %s source %q in namespace %q", strings.ToLower(strings.TrimPrefix(o.Channel.String(), "CHANNEL_")), o.Source, o.Namespace),
 		map[string]string{"channel": o.Channel.String(), "source": o.Source, "namespace": o.Namespace}, 0)
+}
+
+func inUse(msg string) error {
+	return apiError(codes.FailedPrecondition, "IN_USE", msg, nil, 0)
+}
+
+// usedBy says what still depends on the document kind/name, or "": resources
+// that complete a profile, and writer grants that name a bot or a profile.
+func (s *Server) usedBy(st *staged, kind managev1.DocumentKind, name string) string {
+	switch kind {
+	case managev1.DocumentKind_DOCUMENT_KIND_RESOURCE_PROFILE:
+		for _, d := range st.docs {
+			if d.Kind == managev1.DocumentKind_DOCUMENT_KIND_RESOURCE && d.Profile == name {
+				return fmt.Sprintf("resource %s still completes profile %s", d.Name, name)
+			}
+		}
+		for bot, w := range s.writers {
+			if contains(w.Profiles, name) {
+				return fmt.Sprintf("the grant for bot %s still names profile %s", bot, name)
+			}
+		}
+	case managev1.DocumentKind_DOCUMENT_KIND_BOT:
+		if s.writers[name] != nil {
+			return fmt.Sprintf("a writer grant still names bot %s", name)
+		}
+	}
+	return ""
 }
 
 func etagMismatch(current string) error {
@@ -791,8 +865,23 @@ func (s *Server) applyDelete(c caller, st *staged, req *managev1.DeleteDocumentR
 	if req.GetEtag() != cur.Etag && (!req.GetAllowMissing() || req.GetEtag() != "") {
 		return etagMismatch(cur.Etag)
 	}
+	if why := s.usedBy(st, req.GetKind(), req.GetName()); why != "" {
+		return inUse(why)
+	}
 	key := docKey{req.GetKind(), req.GetName()}
 	delete(st.docs, key)
+	for _, d := range st.docs {
+		var spec any
+		if json.Unmarshal([]byte(d.SpecJson), &spec) == nil {
+			save := s.docs
+			s.docs = st.docs
+			err := s.checkReferences(d, spec)
+			s.docs = save
+			if err != nil {
+				return err
+			}
+		}
+	}
 	st.changed[key] = true
 	st.deleted = append(st.deleted, kindName(req.GetKind())+"/"+req.GetName())
 	st.impact.AccessChanges = append(st.impact.AccessChanges, accessChanges(cur, managev1.AccessChange_DIRECTION_LOSS)...)

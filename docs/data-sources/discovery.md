@@ -3,12 +3,15 @@
 page_title: "limen_discovery Data Source - limen"
 subcategory: ""
 description: |-
-  Reads one discovery rule. A Limen discovery rule (ADR-0027). Written only by people, through Git or the console.
+  Reads one discovery rule. A Limen discovery rule (ADR-0027).
+  Only people write discovery rules, so the provider must be logged in as a person with limen:admin (limen login), not as a bot.
 ---
 
 # limen_discovery (Data Source)
 
-Reads one discovery rule. A Limen discovery rule (ADR-0027). Written only by people, through Git or the console.
+Reads one discovery rule. A Limen discovery rule (ADR-0027).
+
+Only people write discovery rules, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot.
 
 ## Example Usage
 

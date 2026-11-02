@@ -255,7 +255,7 @@ const (
 	ErrorReason_ERROR_REASON_OWNED_ELSEWHERE ErrorReason = 2
 	// PERMISSION_DENIED. Outside the writer's grant.
 	// metadata: `rule` (namespace, name_pattern, kind, profile, label, field,
-	// builtin_role).
+	// builtin_role, role, grant).
 	ErrorReason_ERROR_REASON_OUTSIDE_GRANT ErrorReason = 3
 	// INVALID_ARGUMENT. The document doesn't parse or validate.
 	// Field violations are in a `google.rpc.BadRequest` detail.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/limen-dev/terraform-provider-limen/internal/client"
 	"github.com/limen-dev/terraform-provider-limen/internal/fakelimen"
@@ -265,6 +266,14 @@ func TestServerName(t *testing.T) {
 		if _, err := client.ServerNameFor(bad); err == nil {
 			t.Errorf("%s must be refused", bad)
 		}
+	}
+}
+
+func TestTransportHintExpiredCertificate(t *testing.T) {
+	_, detail := client.Explain(status.Error(codes.Unavailable,
+		`connection error: desc = "transport: authentication handshake failed: tls: failed to verify certificate: x509: certificate has expired or is not yet valid"`))
+	if !strings.Contains(detail, "has expired") || strings.Contains(detail, "isn't signed by the CA") {
+		t.Fatalf("an expired certificate is not a wrong CA: %s", detail)
 	}
 }
 

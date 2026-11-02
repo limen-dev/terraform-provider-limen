@@ -3,12 +3,15 @@
 page_title: "limen_resource_profile Data Source - limen"
 subcategory: ""
 description: |-
-  Reads one resource profile. A Limen resource profile: the fixed half of a resource, which writers complete (ADR-0042 §5). Its spec has the template a writer can't change, the settable fields and their bounds, and the label rules. Written only by people, through Git or the console. A bot writer may read the profiles its grant names.
+  Reads one resource profile. A Limen resource profile: the fixed half of a resource, which writers complete (ADR-0042 §5). Its spec has the template a writer can't change, the settable fields and their bounds, and the label rules.
+  Only people write profiles, so the provider must be logged in as a person with limen:admin (limen login), not as a bot. Limen refuses to delete a profile that resources still complete or that a policy writer still names.
 ---
 
 # limen_resource_profile (Data Source)
 
-Reads one resource profile. A Limen resource profile: the fixed half of a resource, which writers complete (ADR-0042 §5). Its spec has the `template` a writer can't change, the `settable` fields and their bounds, and the label rules. Written only by people, through Git or the console. A bot writer may read the profiles its grant names.
+Reads one resource profile. A Limen resource profile: the fixed half of a resource, which writers complete (ADR-0042 §5). Its spec has the `template` a writer can't change, the `settable` fields and their bounds, and the label rules.
+
+Only people write profiles, so the provider must be logged in as a person with `limen:admin` (`limen login`), not as a bot. Limen refuses to delete a profile that resources still complete or that a policy writer still names.
 
 ## Example Usage
 

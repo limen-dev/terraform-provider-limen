@@ -28,6 +28,15 @@ scripts/sync-proto.sh ../limen origin/main   # copy, regenerate, and check the A
 
 - Unit tests: `make test`.
 - Acceptance tests (`make testacc`, `make testacc-tofu`) run a real `terraform` or `tofu` against `fakelimen`. They need no control plane and run in CI on the oldest and newest supported CLIs.
+- Live acceptance test (`TestLiveAdminLifecycle`) runs the same lifecycle against a **real** control plane. Bring up Phase 14's stack with `demos/demo-phase14.sh` in the Limen repository, then:
+
+  ```sh
+  state=<limen>/deploy/compose/.state/limen-phase14
+  LIMEN_LIVE=1 TF_ACC=1 LIMEN_ADDRESS=localhost:38443 LIMEN_CA_FILE=$state/internal-ca.pem LIMEN_HOME=$state/home-admin \
+    go test ./internal/provider -run TestLive -count=1 -v
+  ```
+
+  It writes only `tfacc-<time>-*` documents and removes them. The demo's proxy certificate lasts two days: when it has expired, run the demo again (without `--keep`) to enroll again.
 - Anything checked only against `fakelimen` is **unverified** against Limen. Say so in pull requests and docs.
 
 `fakelimen` follows ADR-0042 where the provider can observe it (etags, ownership, grants, profiles, request ids, dry runs, held changes, error details). When the provider depends on new server behavior, model it in `fakelimen` first, with a test.

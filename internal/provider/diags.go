@@ -48,9 +48,9 @@ func pendingDetail(doing string, p *client.ErrPending) string {
 			b.WriteString("  " + l + "\n")
 		}
 	}
-	fmt.Fprintf(&b, "\nAn admin or one of the writer's approvers can review it with `limen policy changes show %s` and approve it in the console "+
-		"or with `limen policy changes approve %s`. Then run terraform apply again: it finds the document in place. "+
-		"To wait instead of failing, set the provider's approval_timeout.", ch.GetId(), ch.GetId())
+	fmt.Fprintf(&b, "\nAn admin or one of the writer's approvers can review it on the console's Policy changes page or with `limen manage changes show %s`, and decide it with "+
+		"`limen manage changes approve %s` (or `reject`, with a note). Neither its author nor the person who started this run can. "+
+		"Then run terraform apply again: it finds the document in place. To wait instead of failing, set the provider's approval_timeout.", ch.GetId(), ch.GetId())
 	return b.String()
 }
 
