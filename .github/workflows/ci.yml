@@ -4,7 +4,6 @@ name: ci
 # ruleset to require. A workflow-level `paths:` filter that matches nothing never reports its
 # checks, which would block the merge; here the filter is a job instead.
 # A draft pull request runs nothing; marking it ready for review starts the run.
-# GitHub-hosted runners (docs/runbooks/ci-runners.md).
 
 on:
   pull_request:
