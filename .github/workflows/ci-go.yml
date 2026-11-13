@@ -9,16 +9,13 @@ on:
     branches: [main]
     # Everything runs the tests except what is listed here, so a new directory
     # is tested by default. (docs/ stays in: it is generated, and checked.)
-    paths: &paths
+    paths:
       - "**"
       - "!*.md"
       - "!LICENSE"
       - "!.github/**"
       - ".github/workflows/ci-go.yml"
-  # A draft pull request runs nothing; marking it ready for review starts the run.
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths: *paths
+  # Pull requests run through ci.yml, which reads the paths above.
   # Called by release.yml, which tests the exact commit before building anything.
   workflow_call:
   # A manual run ignores the path filter.
