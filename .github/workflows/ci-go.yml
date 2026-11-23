@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Go and golangci-lint
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: go golangci-lint
 
@@ -68,7 +68,7 @@ jobs:
           persist-credentials: false
 
       - name: Install buf
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: buf
 
@@ -91,7 +91,7 @@ jobs:
 
       # tfplugindocs runs terraform to read the provider's schema.
       - name: Install Go, buf, and Terraform
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: go buf terraform
 
@@ -125,7 +125,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Go
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: go
 
@@ -154,7 +154,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Go and ${{ matrix.name }}
-        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install_args: go ${{ matrix.tool }}
 
